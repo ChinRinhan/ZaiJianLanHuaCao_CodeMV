@@ -1,0 +1,9 @@
+.venv-audio/
+.vendor/
+out/
+data/audio/*.npy
+data/audio/*.wav
+data/models/
+pip-*
+__pycache__/
+.scratch/

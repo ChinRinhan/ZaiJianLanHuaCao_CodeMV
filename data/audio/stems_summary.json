@@ -1,0 +1,120 @@
+{
+ "sample_rate": 44100,
+ "sections": {
+  "intro": {
+   "drums": -36.9,
+   "bass": -37.4,
+   "other": -30.5,
+   "vocals": -67.6
+  },
+  "A1": {
+   "drums": -43.1,
+   "bass": -34.0,
+   "other": -30.9,
+   "vocals": -26.4
+  },
+  "B1": {
+   "drums": -37.3,
+   "bass": -23.7,
+   "other": -26.6,
+   "vocals": -20.0
+  },
+  "break_a": {
+   "drums": -27.6,
+   "bass": -25.7,
+   "other": -26.8,
+   "vocals": -40.5
+  },
+  "break_quiet": {
+   "drums": -69.7,
+   "bass": -68.2,
+   "other": -38.9,
+   "vocals": -67.0
+  },
+  "break_solo": {
+   "drums": -69.6,
+   "bass": -71.9,
+   "other": -30.8,
+   "vocals": -69.7
+  },
+  "break_chunks": {
+   "drums": -37.2,
+   "bass": -33.5,
+   "other": -31.4,
+   "vocals": -48.8
+  },
+  "break_full": {
+   "drums": -25.3,
+   "bass": -31.4,
+   "other": -24.7,
+   "vocals": -50.0
+  },
+  "B2": {
+   "drums": -39.7,
+   "bass": -30.4,
+   "other": -32.8,
+   "vocals": -21.8
+  },
+  "A2": {
+   "drums": -31.4,
+   "bass": -29.3,
+   "other": -37.6,
+   "vocals": -25.0
+  },
+  "A3": {
+   "drums": -30.8,
+   "bass": -28.0,
+   "other": -38.1,
+   "vocals": -20.7
+  },
+  "A4": {
+   "drums": -33.5,
+   "bass": -30.4,
+   "other": -37.6,
+   "vocals": -20.8
+  },
+  "tail": {
+   "drums": -65.7,
+   "bass": -63.2,
+   "other": -62.1,
+   "vocals": -61.4
+  }
+ },
+ "checks": {
+  "vocals_48_56": {
+   "rms_db": -49.2,
+   "band_ratio": 0.889,
+   "pitch_salience": 0.075
+  },
+  "vocals_58_66": {
+   "rms_db": -70.7,
+   "band_ratio": 0.411,
+   "pitch_salience": 0.222
+  },
+  "vocals_70_80": {
+   "rms_db": -24.9,
+   "band_ratio": 0.688,
+   "pitch_salience": 0.266
+  },
+  "vocals_90_100": {
+   "rms_db": -22.6,
+   "band_ratio": 0.685,
+   "pitch_salience": 0.666
+  },
+  "vocals_150_158": {
+   "rms_db": -65.4,
+   "band_ratio": 0.125,
+   "pitch_salience": 0.933
+  },
+  "vocals_180_190": {
+   "rms_db": -68.8,
+   "band_ratio": 0.433,
+   "pitch_salience": 0.736
+  },
+  "vocals_230_240": {
+   "rms_db": -65.8,
+   "band_ratio": 0.537,
+   "pitch_salience": 0.372
+  }
+ }
+}
