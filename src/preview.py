@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 
 import clock
+import drive
 import tk
 from tk import (AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix, post)
 
@@ -63,6 +64,13 @@ def _tick_line(i: int) -> str:
     b = _TICK_POOL[(i * 13 + 3) % len(_TICK_POOL)]
     c = _TICK_POOL[(i * 29 + 5) % len(_TICK_POOL)]
     return f"{i:04d}  {a}  {b}  {c}"
+
+
+# One shared breathing value for the whole interface (plan/14 §1.3): every element multiplies
+# by THIS, so they all brighten on the same beat and dim together. Per-element coefficients are
+# exactly what made the old version read as "seven unrelated ramps".
+def beat_breath(t: float) -> float:
+    return 0.74 + 0.36 * clock.pulse(t)
 
 
 def pane_border(d, rect, color, alpha=0.35):
@@ -212,13 +220,14 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
             progress=None, playing=True, rewrite=None, collapsed=False, channels=True,
             game_set=False, rewrite05=False, pen=None, pen_times=None):
     x0, y0, x1, y1 = LEFT
+    breath = beat_breath(t)
     d.rectangle([x0 + 1, y0 + 1, x1 - 1, y1 - 1], fill=(8, 6, 4))
-    pane_border(d, LEFT, AMBER, 0.30 + 0.25 * boot)
+    pane_border(d, LEFT, AMBER, (0.30 + 0.25 * boot) * breath)
     a = 0.22 + 0.78 * boot
     fm = font(tk.MONO, 12)
 
-    tk.text(d, (x0 + 10, y0 + 10), "LASER KARAOKE", fm, AMBER, 0.85 * a)
-    tk.text(d, (x1 - 62, y0 + 10), "LD-1994", fm, AMBER, 0.55 * a)
+    tk.text(d, (x0 + 10, y0 + 10), "LASER KARAOKE", fm, AMBER, 0.85 * a * breath)
+    tk.text(d, (x1 - 62, y0 + 10), "LD-1994", fm, AMBER, 0.55 * a * breath)
     hr(d, x0 + 10, x1 - 10, y0 + 28, AMBER, 0.22 * a)
 
     # one prop: the CD transport carries both the disc and the song information
@@ -226,7 +235,8 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
     hr(d, x0 + 10, x1 - 10, y0 + 180, AMBER, 0.22 * a)
 
     # lyric LCD
-    d.rectangle([x0 + 8, y0 + 186, x1 - 8, y0 + 268], fill=(11, 9, 5), outline=fade(AMBER, 0.18 * a))
+    d.rectangle([x0 + 8, y0 + 186, x1 - 8, y0 + 268], fill=(11, 9, 5),
+                outline=fade(AMBER, 0.18 * a * breath))
     if rewrite05:
         # the machine stops showing the old song and opens a fifth rewrite. nothing gets typed.
         tk.text(d, (x0 + 14, y0 + 190), "REWRITE 05", font(tk.MONO, 10), RED, 0.85)
@@ -338,7 +348,7 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             ridge_row=2, rewrite=None, streak=0.0, machine_note=None, cold=0.0,
             collapsed=False, game_set=False, rewrite05=False, amp_scale=1.0, flower_x=0.72,
             flower_count=1, world_fade=1.0, pen=None, pen_times=None,
-            w_terrain=1.0, w_beam=None, w_hud=1.0):
+            w_terrain=1.0, w_beam=None, w_hud=1.0, big_b1=None):
     if w_beam is None:
         w_beam = w_terrain
     img = Image.new("RGB", (tk.W, tk.H), BG)
@@ -346,14 +356,26 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
 
     if not blank:
         x0, y0, x1, y1 = RIGHT
+        # ---- the four stems, read as control signals (plan/17 §7) ------------------
+        # vocals -> the beam only exists while someone is singing
+        # bass   -> the mountain breathes with the low end (smoothed: a peak-hold jitters)
+        # other  -> rain / character noise density, never a translation
+        # drums  -> a threshold flash, not a slider
+        v_sig = drive.vocals_smooth(t)
+        b_sig = drive.bass_smooth(t)
+        o_sig = drive.other_smooth(t)
+        d_hit = drive.drum_hit(t)
+        breath = beat_breath(t)
+
         # layer 1: the mountain, composited alone so it can arrive before the machine does
         wimg = Image.new("RGB", (tk.W, tk.H), BG)
         tk.sky(wimg, RIGHT, mood, cold)
-        tk.terrain(wimg, RIGHT, mood=mood, seed=seed, t=t, cold=cold, amp_scale=amp_scale)
+        tk.terrain(wimg, RIGHT, mood=mood, seed=seed, t=t, cold=cold,
+                   amp_scale=amp_scale * (0.74 + 0.55 * b_sig))
         if sun > 0:
             wimg = tk.sun(wimg, x0 + (x1 - x0) * 0.70, y0 + (y1 - y0) * 0.44, 30, warm=mood)
         tk.stars(wimg, RIGHT, t, seed, 1.0 - 0.55 * mood)
-        tk.rain(wimg, RIGHT, t, rain, seed)
+        tk.rain(wimg, RIGHT, t, rain * (0.25 + 1.15 * o_sig), seed)
         img.paste(Image.blend(Image.new("RGB", (x1 - x0, y1 - y0), BG),
                               wimg.crop((x0, y0, x1, y1)), w_terrain), (x0, y0))
 
@@ -363,18 +385,31 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
                 img = tk.burst(img, x0 + (x1 - x0) * 0.40, y0 + (y1 - y0) * 0.40, t,
                                spiral * w_beam, mood)
             if entity > 0.01:
+                # the column's height and brightness are the vocal envelope, so it is dark
+                # through the whole 124-second interlude and full while he sings
                 img = tk.entity(img, x0 + (x1 - x0) * 0.40, y0 + (y1 - y0) * 0.40, t,
-                                entity * w_beam)
+                                entity * w_beam * (0.18 + 0.82 * v_sig))
             img = tk.fog(img, RIGHT, y0 + (y1 - y0) * 0.575,
-                         mix(BLUE_HI, (255, 200, 150), mood * 0.8), 0.07 * w_beam)
-            tk.grass(img, RIGHT, t, w_beam, seed)
+                         mix(BLUE_HI, (255, 200, 150), mood * 0.8),
+                         (0.05 + 0.06 * v_sig) * w_beam)
+            # grass belongs to the ground, not to the beam: following w_beam made it float
+            # like a fence whenever the mountain was half transparent (plan/15 §3.2 #7)
+            tk.grass(img, RIGHT, t, w_terrain, seed)
         d = ImageDraw.Draw(img)
         if flower > 0:
             n = max(1, flower_count)
             for k in range(n):
                 fx = flower_x + (k - (n - 1) / 2) * 0.085
                 hh = flower * 235 * (0.72 + 0.28 * ((k * 37) % 7) / 6)
-                tk.flower(img, x0 + (x1 - x0) * fx, y1 - 14 - (k % 3) * 6, hh, t + k * 0.7, mood)
+                if n == 1:
+                    # one potted plant, as the poem describes it (胡适: "种在小园中") —
+                    # a pot is what makes the last line ("谁记得曾经有那一盆") mean anything
+                    tk.orchid(img, x0 + (x1 - x0) * fx, y1 - 14, hh, t, alpha=1.0, blooms=2)
+                else:
+                    # a hillside of them: still 兰 (five narrow tepals + a lip), never the
+                    # six-petal daisy the old tk.flower drew — the song is called 兰花草
+                    tk.orchid(img, x0 + (x1 - x0) * fx, y1 - 14 - (k % 3) * 6,
+                              hh * 0.78, t + k * 0.7, alpha=0.92, blooms=2)
         if big_glyph:
             f = font(tk.CJK, 130)
             tw = d.textlength(big_glyph, font=f)
@@ -395,7 +430,7 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         # layer 3: the machine finally starts measuring what it was watching
         if w_hud > 0.02:
             plate = (x0 + 16, y1 - 150, x0 + 470, y1 - 44)
-            plt = 0.74 + 0.36 * clock.pulse(t)
+            plt = breath + 0.10 * d_hit
             tk.hud_plate(img, plate, "SIGNAL / 24.15N 120.68E", BLUE_HI, 0.28 * w_hud * plt)
             d = ImageDraw.Draw(img)
             tk.spectrum(img, (plate[0] + 8, plate[1] + 18, plate[0] + 188, plate[3] - 8), t,
@@ -448,6 +483,24 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         f = font(tk.CJK, 22)
         tw = d.textlength(center, font=f)
         d.text(((tk.W - tw) / 2, tk.H / 2 - 14), center, font=f, fill=BLUE_HI)
+
+    # B①: the four demands stamped across the whole frame (plan/05 §4). This is the only
+    # place in the film where type covers both panes — the loudest 18 s of the song get the
+    # whole screen, not a 384 px box. It stays clear of the left pane's chrome so the machine
+    # remains readable underneath: the words are stamped OVER the world, not over the machine.
+    if big_b1:
+        word, alpha = big_b1
+        if alpha > 0.01:
+            fs = 88 if len(word) <= 10 else 70
+            f_big = font(tk.CJK, fs)
+            tw = d.textlength(word, font=f_big)
+            bx = RIGHT[0] + ((RIGHT[2] - RIGHT[0]) - tw) / 2
+            by = tk.H * 0.44 - fs * 0.5
+            d.text((bx + 2, by + 3), word, font=f_big, fill=fade((0, 0, 0), alpha))
+            d.text((bx, by), word, font=f_big, fill=fade(tk.AMBER, 0.93 * alpha))
+            # a hairline under it, so it reads as a stamped line and not as a title card
+            d.rectangle([bx, by + fs * 1.18, bx + tw, by + fs * 1.18 + 2],
+                        fill=fade(tk.AMBER, 0.5 * alpha))
 
     return post(img, glow * 0.6)
 
@@ -512,12 +565,23 @@ def ending_frame(t: float, *, cursor_on: bool = True):
     return post(img, 0.25)
 
 
-def black_frame(t: float, cursor_on: bool = True):
-    """3% black. The cursor is the only thing left — same spot as on the GAME SET card."""
+def black_frame(t: float, cursor_on: bool = True, thanks: bool = False, thanks_alpha: float = 1.0):
+    """3% black. The cursor is the only thing left — same spot as on the GAME SET card.
+
+    391 s the machine says the 1994 phrase, 393 s it fades and only the cursor is left
+    (plan/05 §7). `[ 谢谢收听 ]` is the karaoke machine's own sign-off, not a 2026 eulogy
+    (plan/04 §6) — which is why it is allowed and "宝哥我们想你" is not.
+    """
     img = Image.new("RGB", (tk.W, tk.H), (0, 0, 0))
     d = ImageDraw.Draw(img)
     if cursor_on:
         d.rectangle([64, 400, 78, 426], fill=(255, 176, 0))
+    if thanks and thanks_alpha > 0.01:
+        f = font(tk.MONO, 15)
+        txt = "[ 谢谢收听 ]"
+        tw = d.textlength(txt, font=f)
+        d.text(((tk.W - tw) / 2, tk.H / 2 + 60), txt, font=f,
+               fill=fade(AMBER, 0.62 * thanks_alpha))
     return img.point(tk._gauze)
 
 
