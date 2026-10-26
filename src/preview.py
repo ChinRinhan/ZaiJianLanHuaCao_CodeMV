@@ -714,7 +714,7 @@ def intro_scene(t: float):
             # The panel is already at ~60% the moment the aperture shows it, so the opening
             # reveals a machine rather than an empty grey rectangle. It then finishes coming
             # up over 0.5 s with an overshoot (ease_back), not from zero.
-            boot_a = 0.60 + 0.40 * tk.ease_back(min(1.0, (t - 0.50) / 0.55))
+            boot_a = 1.0
             # frame first, then the slot, then the label — three separate arrivals
             dl.rectangle(box, outline=fade(AMBER, 0.55 * boot_a))
             slot_u = tk.ease_out(min(1.0, (t - 1.45) / 0.45))
@@ -882,12 +882,8 @@ def intro_scene(t: float):
     d = ImageDraw.Draw(img)
     if ln is not None and line_a > 0:
         d.line([(ln[0], cy), (ln[1], cy)], fill=fade((255, 246, 224), line_a), width=3)
-    if aperture is not None and t < 1.35:
-        # a short warm-up glow inside the opening picture, gone within 0.4 s of the tube opening
-        v = max(0.0, 0.07 * (1 - (t - 0.50) / 0.35))
-        if v > 0.01:
-            x0, y0, x1, y1 = aperture
-            d.rectangle([x0, y0, x1, y1], fill=fade((255, 250, 240), v))
+    # NO warm-up veil. It painted a flat grey plate over the opening aperture for 0.35 s and
+    # read as a bug, not as a CRT warming up. The aperture reveal itself is the effect.
     return post(img, 0.35)
 
 
