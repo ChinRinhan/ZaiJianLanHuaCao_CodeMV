@@ -1,7 +1,7 @@
 {
- "bpm": 167.65,
- "phase": 0.235,
- "beat": 0.3579,
+ "bpm": 112.35,
+ "phase": 0.569,
+ "beat": 0.534,
  "lines": [
   {
    "t0": 67.85,
@@ -835,5 +835,6 @@
     386.78
    ]
   }
- ]
+ ],
+ "note": "beat grid corrected 2026-10-26: 167.65 was a 3:2 lock onto a shuffle subdivision; see plan/19 §1"
 }

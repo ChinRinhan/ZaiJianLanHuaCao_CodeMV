@@ -93,17 +93,26 @@ def intro_layer(t: float) -> float:
 
 
 SECTIONS = [
+    # Structure follows 再见兰花草-段落结构.md (v2) — the doc the director pointed at.
+    # That doc's own table has ±1 s error, so exact sung times still come from the LRC and the
+    # stem envelopes; what we take from it is the SHAPE: 8 sections, and the 23/23/23/23/23/13
+    # half-block rhythm of the back half (its §2.1, "全曲唯一的节奏突变").
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
     ("intro", 0.0, 67.85, 0.00, 0.00, 0.00, 0.00, 0.00, 0.0, 0.55, 0.72, 1),
     ("A1", 67.85, 103.84, 0.12, 0.00, 0.55, 0.55, 0.10, 0.0, 0.85, 0.72, 1),
-    ("B1", 103.84, 122.0, 0.35, 0.00, 0.65, 0.70, 0.15, 0.3, 1.00, 0.70, 1),
-    ("break", 122.0, 245.79, 0.25, 0.00, 0.55, 0.60, 0.00, 0.0, 0.55, 0.72, 1),
+    # B① ends at 124 s per the doc (2:04), not at the last sung syllable (121.9). The shout
+    # (呐喊) sits at 124-136 and belongs to the interlude's opening blast, not to B①.
+    ("B1", 103.84, 124.0, 0.35, 0.00, 0.65, 0.70, 0.15, 0.3, 1.00, 0.70, 1),
     ("B2", 245.79, 266.31, 0.10, 0.00, 0.60, 0.35, 0.00, 0.0, 0.80, 0.70, 1),
-    ("A2", 266.31, 312.45, 0.00, 0.35, 0.80, 0.80, 0.10, 0.2, 1.00, 0.66, 3),
-    ("A3", 312.45, 358.92, 0.00, 1.00, 1.00, 0.95, 0.25, 1.0, 1.20, 0.62, 5),
-    # A④ is subtraction, not a fourth build-up (plan/03 §4): no beam, no rain, no spiral,
-    # one potted plant. Leaving entity=0.25 here lit a stray column over the empty mountain.
-    ("A4", 358.92, 380.99, 0.00, 0.10, 0.45, 0.00, 0.00, 0.0, 0.55, 0.50, 1),
+    # A②/A③ are each two 23 s half-blocks (doc §2.1); each half gets its own cue line.
+    ("A2a", 266.31, 289.64, 0.00, 0.30, 0.80, 0.80, 0.10, 0.2, 1.00, 0.66, 3),
+    ("A2b", 289.64, 312.45, 0.00, 0.40, 0.82, 0.82, 0.12, 0.3, 1.05, 0.66, 3),
+    ("A3a", 312.45, 334.69, 0.00, 1.00, 1.00, 0.95, 0.25, 1.0, 1.20, 0.62, 5),
+    ("A3b", 334.69, 358.92, 0.00, 1.00, 1.00, 0.95, 0.25, 1.0, 1.20, 0.62, 5),
+    # A④ is subtraction, not a fourth build-up (plan/03 §4). Split at 380.99 = its own
+    # half-block boundary, and the shot list has 22.1 s + 6 s of "最后只唱两句".
+    ("A4a", 358.92, 380.99, 0.00, 0.10, 0.45, 0.00, 0.00, 0.0, 0.55, 0.50, 1),
+    ("A4b", 380.99, 386.5, 0.00, 0.05, 0.42, 0.00, 0.00, 0.0, 0.48, 0.50, 1),
 ]
 
 
@@ -117,8 +126,8 @@ def rms_at(t: float) -> float:
 
 def section_at(t: float):
     """The design section for t. The interlude resolves to its named movement, so the picture
-    can follow the instrument that is playing rather than a single 124-second block."""
-    if 122.0 <= t < 245.79:
+    can follow the instrument that is playing rather than a single 121-second block."""
+    if 124.0 <= t < 245.79:
         for s in BREAK_SECTIONS:
             if s[1] <= t < s[2]:
                 return s
@@ -128,38 +137,40 @@ def section_at(t: float):
     return SECTIONS[-1]
 
 
-# ---- the 124-second interlude, in six named movements ------------------------
-# This was the single most-missing piece of the design (plan/18 §5.3): the interlude used to
-# be one flat "break" with an abstract energy curve. The analysis video names the instruments
-# movement by movement and the stem table (plan/18 §6) matches it window for window, so each
-# movement can now be designed around an instrument instead of around an energy level.
+# ---- the 121-second interlude, in seven movements ----------------------------
+# The doc puts the interlude at 2:04-4:05 (124-245). The analysis video's captions then name
+# the instruments movement by movement, and the stem table (plan/18 §6) matches it window for
+# window, so each movement can be designed around an instrument instead of an energy level.
 #
 #   window     OCR caption (B站解析)                  stems (dBFS)            design
-#   122-146    full band, brightest                  drums -27.6 bass -25.7  the loudest, everything on
-#   147-162    "细小的钢琴声…像巴赫的巴洛克"          only other -39.3        almost dark: one thin line
-#   162-190    "小提琴与钢琴交互进行"                 only other -30.8        two lines trading
-#   190-212    "贝斯清晰可闻，电吉他以不同方式咆哮"   bass -31.7 drums -34.2  bass visible again
-#   212-230    "电吉他尽情咆哮"                       drums -25.3 (loudest)   full-on, beat drives it
-#   230-245.79 同上（人声轨空）                       drums -25.5             same, thinning to B②
+#   124-138    "随着鼓的重击，宝哥发出高亢响亮的呐喊"   vocals -28~-33          the shout: full blast
+#   138-146.5  "呐喊结束，电吉他与鼓收尾"               drums -29 bass -31      the tail, thinning
+#   147-162    "细小的钢琴声…像巴赫的巴洛克"            only other -39.3        almost dark: one thin line
+#   162-190    "小提琴与钢琴交互进行"                   only other -30.8        two lines trading
+#   190-212    "贝斯清晰可闻，电吉他以不同方式咆哮"     bass -31.7 drums -34.2  bass visible again
+#   212-230    "电吉他尽情咆哮"                         drums -25.3 (loudest)   full-on, beat drives it
+#   230-245.79 同上（人声轨空）                         drums -25.5             thinning into B②
 BREAK_SECTIONS = [
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
-    ("break1", 122.00, 146.5, 0.30, 0.00, 0.55, 0.55, 0.00, 0.3, 0.90, 0.72, 1),
-    ("break2", 146.5, 162.0, 0.20, 0.10, 0.30, 0.00, 0.00, 0.0, 0.30, 0.72, 1),
-    ("break3", 162.0, 190.0, 0.25, 0.05, 0.40, 0.00, 0.00, 0.0, 0.40, 0.60, 1),
-    ("break4", 190.0, 212.0, 0.30, 0.00, 0.45, 0.00, 0.00, 0.0, 0.55, 0.78, 1),
-    ("break5", 212.0, 230.0, 0.35, 0.00, 0.55, 0.45, 0.00, 0.4, 1.00, 0.72, 1),
-    ("break6", 230.0, 245.79, 0.30, 0.00, 0.50, 0.35, 0.00, 0.2, 0.90, 0.72, 1),
+    ("shout", 124.00, 138.0, 0.40, 0.00, 0.60, 0.70, 0.05, 0.5, 1.10, 0.72, 1),
+    ("boutro", 138.0, 147.0, 0.30, 0.00, 0.52, 0.35, 0.00, 0.2, 0.75, 0.72, 1),
+    ("piano", 147.0, 162.0, 0.20, 0.10, 0.30, 0.00, 0.00, 0.0, 0.28, 0.72, 1),
+    ("duet", 162.0, 190.0, 0.25, 0.05, 0.40, 0.00, 0.00, 0.0, 0.40, 0.60, 1),
+    ("bass", 190.0, 212.0, 0.30, 0.00, 0.45, 0.00, 0.00, 0.0, 0.55, 0.78, 1),
+    ("roar", 212.0, 230.0, 0.35, 0.00, 0.55, 0.45, 0.00, 0.4, 1.00, 0.72, 1),
+    ("cool", 230.0, 245.79, 0.30, 0.00, 0.50, 0.35, 0.00, 0.2, 0.90, 0.72, 1),
 ]
 
 # the framing of each movement: a different camera, not a different filter (plan/03 §2.1)
 # (ridge offset px, ridge scale multiplier, floor line: 0=high horizon, 1=low)
 BREAK_CAMERA = {
-    "break1": (0.0, 1.00, 0.62),
-    "break2": (0.0, 0.55, 0.42),   # almost empty: a single thin line, high in the frame
-    "break3": (-60.0, 0.70, 0.52),  # pans left, two lines trading
-    "break4": (40.0, 0.85, 0.66),   # comes back right, bass visible: low horizon
-    "break5": (0.0, 1.15, 0.70),    # full-on: the widest, tallest ridge
-    "break6": (-20.0, 0.95, 0.64),
+    "shout": (0.0, 1.15, 0.70),    # full blast: widest, tallest
+    "boutro": (-20.0, 0.95, 0.66),
+    "piano": (0.0, 0.55, 0.42),    # almost empty: a single thin line, high in the frame
+    "duet": (-60.0, 0.70, 0.52),   # pans left, two lines trading
+    "bass": (40.0, 0.85, 0.66),    # comes back right, bass visible: low horizon
+    "roar": (0.0, 1.20, 0.72),     # the loudest movement
+    "cool": (-20.0, 0.95, 0.64),
 }
 
 
@@ -236,7 +247,7 @@ def score_at(t: float) -> float:
         return 0.0
     if t < 103.84:
         return 61.0 + 17.0 * (t - 67.85) / 36.0
-    if t < 122.0:
+    if t < 124.0:
         return 99.4
     if t < 245.79:
         return 0.0
@@ -301,7 +312,7 @@ def _normal(t: float):
     # B①: the demands are stamped across the whole screen, not typed into the LCD
     b1_big = None
     b1_alpha = 0.0
-    if 103.84 <= t < 122.0:
+    if 103.84 <= t < 124.0:
         w, a_in, a_out = _b1_word(t)
         if w:
             b1_big = w
@@ -339,17 +350,17 @@ def _normal(t: float):
     if cam:
         w_terrain = min(w_terrain, 0.92)
 
-    # ---- A④ is subtraction from its first frame, not only once the rewrite opens ----
+    # ---- A④ is subtraction from its first frame ----
     # plan/03 §4: "把 A④ 拍成减法——花田退回一株、网格退回基准、颜色褪成单色、评分归零、
-    # 播放列表缩成一行". The retreat must be a curve across 380.99-386.5, not a switch that
-    # only starts at 383.0 when REWRITE 05 opens.
+    # 播放列表缩成一行". The retreat is one continuous curve across the whole 27.6 s
+    # (358.92-386.5), not a switch that only starts when REWRITE 05 opens.
     a4_w = None
-    if 358.92 <= t < 380.99:
-        u4 = (t - 358.92) / (380.99 - 358.92)
+    if 358.92 <= t < 386.5:
+        u4 = (t - 358.92) / (386.5 - 358.92)
         a4_w = {
-            "w_terrain": 1.0 - 0.55 * u4,
-            "w_beam": 1.0 - 0.90 * u4,
-            "w_hud": 1.0 - 0.45 * u4,
+            "w_terrain": 1.0 - 0.90 * u4,
+            "w_beam": 1.0 - 1.00 * u4,
+            "w_hud": 1.0 - 0.62 * u4,
         }
     if a4_w:
         w_terrain = a4_w["w_terrain"]
