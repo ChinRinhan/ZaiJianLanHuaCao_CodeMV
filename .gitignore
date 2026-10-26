@@ -3,6 +3,7 @@
 out/
 data/audio/*.npy
 data/audio/*.wav
+data/audio/stems_wav/
 data/models/
 pip-*
 __pycache__/
