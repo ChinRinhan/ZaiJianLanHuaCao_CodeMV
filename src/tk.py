@@ -525,6 +525,105 @@ def ticks(img: Image.Image, rect, color=BLUE_HI, alpha=0.18):
         d.line([(x, y1 - 5), (x, y1 - 1)], fill=c)
 
 
+def rise_line(img: Image.Image, rect, t: float, steps, *, amount: float = 1.0,
+              span=(188.0, 212.0), floor: float = 0.86, ceil: float = 0.20,
+              color=None):
+    """A staircase that climbs one step per note — 3:10–3:30's only device.
+
+    `steps` is [(time, weight)] (the guitar's attacks). The line is DRAWN left to right
+    across `span`, and every attack lifts it. By 3:32 it is high in the frame, then it is
+    torn apart by the solo's rings: the rise is literal, so the solo does not have to
+    compete with it, it has to break it.
+
+    导演 (06:18): 3:10 要"明显"、还要凸显后面的 solo。A single climbing line is obvious at
+    any size, needs no legend, and leaves the spiral/ring vocabulary untouched for 3:32.
+    """
+    if amount <= 0.01:
+        return
+    x0, y0, x1, y1 = rect
+    d = ImageDraw.Draw(img)
+    w, h = x1 - x0, y1 - y0
+    col = (255, 250, 240) if color is None else color
+    t0, t1 = span
+    if t <= t0:
+        return
+    total = max(1e-6, sum(w for _t, w in steps))     # weights, not a power of the count:
+                                                      # count**0.62 hit the ceiling in the
+                                                      # first second and the line ran flat
+    u = min(1.0, (t - t0) / (t1 - t0))
+    xe = x0 + w * u
+    pts = [(x0 + 2, y0 + h * floor)]
+    cnt = 0.0
+    for (ts, wt) in steps:
+        if ts > t:
+            break
+        cnt += wt
+        xx = x0 + 2 + (xe - x0 - 2) * min(1.0, (ts - t0) / max(1e-3, (t - t0)))
+        yy = y0 + h * (floor - (floor - ceil) * min(1.0, cnt / total))
+        pts.append((xx, pts[-1][1]))
+        pts.append((xx, yy))
+    pts.append((xe, pts[-1][1]))
+    d.line(pts, fill=fade(col, 0.90 * amount), width=2)
+    # the head: where the climb has got to
+    d.line([(xe, pts[-1][1] - 7), (xe, pts[-1][1] + 7)], fill=fade(col, amount), width=2)
+    d.line([(x0 + 2, y0 + h * floor), (x1 - 4, y0 + h * floor)], fill=fade(col, 0.10 * amount))
+
+
+def shock_ring(img: Image.Image, cx: float, cy: float, phase: float, amount: float = 1.0,
+               rings: int = 3, rmax: float | None = None, color=AMBER, alpha: float = 0.5):
+    """Concentric rings leaving the centre — the shout's punctuation.
+
+    `phase` is 0 on the beat and 1 just before the next one (i.e. `1 - clock.pulse(t)`), so
+    a ring is BORN exactly when the drums hit: the punctuation is locked to the grid by
+    construction instead of being another free-running animation. Rings are ellipses
+    squashed 0.62 vertically, the same flattening the terrain uses, so they lie in the
+    world rather than on top of it.
+    """
+    if amount <= 0.01:
+        return img
+    d = ImageDraw.Draw(img)
+    W, H = img.size
+    rmax = rmax or (min(W, H) * 0.62)
+    for i in range(rings):
+        u = (phase + i / rings) % 1.0
+        r = 14 + rmax * u ** 0.72
+        a = alpha * amount * (1.0 - u) ** 1.1
+        if a <= 0.01:
+            continue
+        d.ellipse([cx - r, cy - r * 0.62, cx + r, cy + r * 0.62],
+                  outline=fade(color, a))
+    core = max(0.0, 1.0 - phase / 0.16)
+    if core > 0.01:
+        d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4],
+                  fill=fade((255, 246, 224), core * amount))
+    return img
+
+
+def ground_ripple(img: Image.Image, rect, y: float, phase: float, amount: float = 1.0,
+                  ripples: int = 3, color=None):
+    """Rings lying ON the horizon, widening as they travel — the bass made visible.
+
+    A bass note is felt in the floor before it is heard. `shock_ring` is a circle in the
+    air; this is the same idea flattened onto the ground line (ry = rx * 0.10), so the two
+    never read as the same effect: one is an impact, the other is a tremor.
+    """
+    if amount <= 0.01:
+        return
+    x0, _y0, x1, _y1 = rect
+    d = ImageDraw.Draw(img)
+    col = AMBER if color is None else color
+    span = (x1 - x0) * 0.30
+    for i in range(ripples):
+        u = (phase + i / ripples) % 1.0
+        rx = 30 + span * u ** 0.8
+        a = 0.42 * amount * (1.0 - u) ** 1.5
+        if a <= 0.01:
+            continue
+        d.ellipse([x0 + (x1 - x0) / 2 - rx, y - rx * 0.10,
+                   x0 + (x1 - x0) / 2 + rx, y + rx * 0.10],
+                  outline=fade(col, a), width=1)
+
+
 def burst(img: Image.Image, cx: float, cy: float, t: float, amount: float, warm: float = 1.0):
     """Radial light rays: the 'key change' surge. Additive, so it never darkens the sky."""
     if amount <= 0:

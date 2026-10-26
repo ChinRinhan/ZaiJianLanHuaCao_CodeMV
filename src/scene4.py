@@ -39,9 +39,11 @@ from PIL import Image, ImageDraw
 
 import clock
 import drive
+import instruments
 import layout4
 import preview
 import scene
+import score3
 import shots
 import tk
 from layout4 import AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix
@@ -312,17 +314,246 @@ def _b1_big(t):
 
     Returns (word, alpha, age) — age lets the drawing layer land the phrase like thunder.
     """
-    if not (103.84 <= t < 124.0):
+    if not (103.84 <= t < scene.B1_END):
         return None
     w, a_in, a_out, age = scene._b1_word(t)
     if not w:
         return None
-    return w, a_in * a_out, age
+    # The slot closes BEFORE the first stamp (导演: 先画框再填). B1_T0 + B1_TYPE_WAIT is
+    # where the pen finishes, so the first phrase is held back to that frame and lands at
+    # 0.55 alpha already inside a closed form — a stamp, not a fade-up. Later phrases keep
+    # their own start times, which is also what closes the gap between phrases (D).
+    lt = max(t - age, B1_T0 + B1_TYPE_WAIT)
+    if t < lt:
+        return None                  # the slot is still closing: nothing is stamped yet
+    a = 0.55 + 0.45 * min(1.0, (t - lt) / 0.14)
+    return w, a * a_out, t - lt
 
 
-def _undo_at(t):
-    """The one character that goes back to its pre-rewrite version, for 0.6 s (plan/16 §2.3)."""
-    return scene.undo_at(t)
+# ---- 器乐格：一块东西的三个形态 ---------------------------------------------------
+# 导演 (04:12)：1:42「给我…」到 2:00 是过渡，慢慢把界面转化成器乐合奏；位置不变。
+#
+# So the instrument column is ONE object with three states, all in frame coordinates:
+#
+#   83.35  292 px   column    three tracks (guitar / drums / bass)
+#   102.4  grows    -> 640 px, the machine's own panel collapses to a lamp strip
+#   103.84 640 px   FORM      the four demands are stamped INSIDE it
+#   112.6  shrinks  -> 292 px, two 「直到」 lines travel in and land in the 05 slot
+#   117.39 292 px   CLOCK     05 is assigned 02:25 (the distance to the chorus at 4:25)
+#   118.6  fades    -> the six lanes come back: the form has become the band
+CELL_T0 = 83.35
+CELL_END = 245.79
+CELL_W_COL = 292.0
+CELL_W_FORM = 640.0
+FORM_T0, FORM_T1 = 102.40, 103.80
+FORM_HOLD, FORM_BACK = 112.60, 117.40
+FORM_OUT0, FORM_OUT1 = 118.60, 120.00
+LANES_T0 = 113.40
+FORM_ROLL = 114.60          # the sheet rolls up into the strip by here
+BASS_IN = 90.50
+
+
+def _smooth(u: float) -> float:
+    u = max(0.0, min(1.0, u))
+    return u * u * (3 - 2 * u)
+
+
+def _cell_w(t: float) -> float:
+    """The column's width at t, in pixels (0 = not on screen)."""
+    if t < CELL_T0 or t >= CELL_END:
+        return 0.0
+    if t > 243.60:
+        return CELL_W_COL * max(0.0, (245.00 - t) / 1.40)
+    if t < FORM_T0:
+        return CELL_W_COL * min(1.0, (t - CELL_T0) / 0.55)
+    if t < FORM_T1:
+        return CELL_W_COL + (CELL_W_FORM - CELL_W_COL) * _smooth((t - FORM_T0) / (FORM_T1 - FORM_T0))
+    if t < FORM_HOLD:
+        return CELL_W_FORM
+    if t < FORM_BACK:
+        return CELL_W_FORM - (CELL_W_FORM - CELL_W_COL) * _smooth((t - FORM_HOLD) / (FORM_BACK - FORM_HOLD))
+    return CELL_W_COL
+
+
+def _form_collapse(t: float) -> float:
+    """The machine gets out of its own way while the form is being stamped."""
+    if t < FORM_T0 or t >= FORM_BACK:
+        return 0.0
+    if t < FORM_T1:
+        return _smooth((t - FORM_T0) / (FORM_T1 - FORM_T0))
+    if t < FORM_HOLD:
+        return 1.0
+    return 1.0 - _smooth((t - FORM_HOLD) / (FORM_BACK - FORM_HOLD))
+
+
+def _cell_state(t):
+    """The column's tracks at t (empty while the form is in it)."""
+    w = _cell_w(t)
+    if w <= 2.0:
+        return None
+    tracks = []
+    if t >= scene.B1_END:
+        # ⑤-A: six lanes, always all six — a lane is a CHAIR, not a spotlight. The one that
+        # is playing is brighter and its notation moves; the others stay as quiet rails, so
+        # the frame always answers "how many people are in this band".
+        live = _stage_kw(t, scene.section_at(t)[0])["live"]
+        lanes = [("GTR", "TAB", dict(onsets=score3.GTR, tuning=instruments.TUNING6,
+                                     marks=())),
+                 ("BAS", "TAB", dict(onsets=score3.BASS, tuning=instruments.TUNING4,
+                                     marks=())),
+                 ("DRM", "GRID", dict(onsets=score3.DRUM)),
+                 ("PNO", "ROLL", dict(onsets=score3.NOTES)),
+                 ("VLN", "CURVE", dict(onsets=score3.GTR)),
+                 ("VOX", "COL", dict())]
+        for name, kind, pay in lanes:
+            pay["level"] = live.get(name, 0.0)
+            tracks.append((name, kind, pay))
+    elif t < FORM_T0 or t >= LANES_T0:
+        tracks = [("GTR", "TAB", {"onsets": score3.GTR, "tuning": instruments.TUNING6,
+                                  "level": drive.other(t),
+                                  "marks": (106.15, 108.32, 110.64)})]
+        if t >= 86.00 or t >= LANES_T0:
+            tracks.append(("DRM", "GRID", {"onsets": score3.DRUM, "level": drive.drums(t)}))
+        if t >= BASS_IN or t >= LANES_T0:
+            tracks.append(("BAS", "TAB", {"onsets": score3.BASS, "tuning": instruments.TUNING4,
+                                          "level": drive.bass(t)}))
+    strum = -1.0
+    if 86.00 <= t < 86.18:
+        strum = (t - 86.00) / 0.18
+    # the form needs a floor to be drawn on while its own content is absent
+    return {"w": w, "cell": min(1.0, w / CELL_W_COL), "tracks": tracks,
+            "alpha": min(1.0, w / 40.0),
+            "sub": "A1" if t < scene.B1_END else scene.section_at(t)[0].upper(),
+            "solo": None if t < scene.B1_END else MOVE_SOLO.get(scene.section_at(t)[0]),
+            "strum": strum}
+
+
+# ---- the form: the four demands, and the fifth line that is never asked for ------
+# 导演 (04:12) ③: 倒计时只留短的 —— 2:00 → 4:25，正好 145 秒 = 2:25，而 4:25 是合唱
+# (A② 4:26.3) 前的一刻。So the machine answers 「给我五分钟」 with 02:25: it shortens the
+# promise to the distance that is actually left.
+B1_T0, B1_T1 = 103.84, 136.6
+B1_PEN = 0.28
+B1_TYPE_WAIT = 0.32
+B1_TICKS = (103.78, 106.15, 108.32, 110.64)
+B1_CLOCK_T0 = 117.39
+COUNTDOWN = 145.0            # 2:25 — from 2:00 to 4:25
+B1_LAST_END = 112.89
+B1_QUIET = 124.0
+L1_T0, L1_T1 = 112.89, 115.18      # 「直到那一天我爱上她」
+L2_T0, L2_T1 = 115.18, 117.39      # 「直到那一天我眼泪滑下」
+
+
+def _demand_state(t):
+    """The form's state at t, or None. Pure function of t."""
+    if not (B1_T0 <= t < FORM_OUT1):
+        return None
+    stamped = 0
+    for i, tt in enumerate(B1_TICKS):
+        land = max(tt, B1_T0 + B1_TYPE_WAIT) if i == 0 else tt
+        if t >= land:
+            stamped = i + 1
+    clock_on = t >= B1_CLOCK_T0
+    a = 1.0
+    if t >= B1_QUIET:
+        a = 0.42
+    if t > FORM_OUT0:
+        a = min(a, max(0.0, 1.0 - (t - FORM_OUT0) / (FORM_OUT1 - FORM_OUT0)))
+    hold = None
+    if stamped and not clock_on:
+        nxt = B1_TICKS[stamped] if stamped < len(B1_TICKS) else B1_CLOCK_T0
+        hold = max(0.0, nxt - t)
+    return {
+        "pen": min(1.0, (t - B1_T0) / B1_PEN),
+        "stamped": stamped,
+        "hold": hold,
+        "clock": "02:25" if clock_on else None,
+        "phase": clock.beat_phase(t),
+        "alpha": a,
+        "line1": _smooth((t - L1_T0) / (L1_T1 - L1_T0)) if t >= L1_T0 else 0.0,
+        "line2": _smooth((t - L2_T0) / (L2_T1 - L2_T0)) if t >= L2_T0 else 0.0,
+        "shrink": _smooth((t - FORM_HOLD) / (FORM_ROLL - FORM_HOLD)) if t >= FORM_HOLD else 0.0,
+    }
+
+
+# the dial is born in the middle of the world, then takes its post at the bottom right
+DIAL_T0 = 117.39
+DIAL_CX, DIAL_CY = 642.0, 320.0      # centre of the 484 px world at 117.4–121.4
+DIAL_TX, DIAL_TY = 1164.0, 656.0     # its post in the token band (tokens() draws there)
+DIAL_MOVE = (120.20, 121.40)
+
+
+def _countdown(t):
+    """(text, alpha, done, outer, inner) for the token band's dial."""
+    if t < 121.40:
+        return None
+    left = max(0.0, COUNTDOWN - (t - 120.0))
+    a = 1.0
+    if t > 264.0:
+        a = max(0.0, 1.0 - (t - 264.0) / 4.0)
+    if a <= 0.01:
+        return None
+    return ("%02d:%02d" % (int(left) // 60, int(left) % 60), a, left <= 0.0,
+            min(1.0, (t - DIAL_T0) / 300.0), max(0.0, min(1.0, (t - 120.0) / COUNTDOWN)))
+
+
+def _roll(text: str, age: float, *, step: float = 0.055, spin: float = 0.17,
+          tick: float = 0.030) -> str:
+    """A mechanical counter being set: each digit ticks up and lands on its own value.
+
+    `tk.decode` was the first attempt and 导演 (04:54) called it 不规律 — it re-rolls each
+    character on its own random clock, so nothing tells you the number is being SET.
+
+    Here every digit starts at the value `n` ticks before its target and steps +1 on a
+    fixed clock, so it lands EXACTLY on the target when it locks — a counter, not a
+    scramble. Columns lock left to right, one every `step` seconds.
+    """
+    out = []
+    n_ticks = max(1, int(round(spin / tick)))
+    for i, ch in enumerate(text):
+        if not ch.isdigit():
+            out.append(ch)
+            continue
+        u = age - i * step
+        tgt = int(ch)
+        if u < 0:
+            out.append("-")
+        elif u < spin:
+            start = (tgt - n_ticks) % 10
+            out.append(str((start + int(u / tick)) % 10))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _dial_state(t):
+    """The dial while it is being assembled and moved. After DIAL_MOVE the band owns it."""
+    if not (DIAL_T0 <= t < DIAL_MOVE[1]):
+        return None
+    left = max(0.0, COUNTDOWN - max(0.0, t - 120.0))
+    txt = "%02d:%02d" % (int(left) // 60, int(left) % 60)
+    seg = 1.0
+    big = True
+    if t < DIAL_T0 + 0.33:
+        u = _smooth((t - DIAL_T0) / 0.33)
+        r, seg, x, y, a = 46.0 * u, u, DIAL_CX, DIAL_CY, min(1.0, (t - DIAL_T0) / 0.10)
+        txt = _roll(txt, t - DIAL_T0)
+    elif t < DIAL_T0 + 0.71:
+        u = _smooth((t - DIAL_T0 - 0.33) / 0.38)
+        r, seg, x, y, a = 46.0 + 32.0 * u, 1.0, DIAL_CX, DIAL_CY, 1.0
+        txt = _roll(txt, t - DIAL_T0)
+    elif t < DIAL_MOVE[0]:
+        r, seg, x, y, a = 78.0, 1.0, DIAL_CX, DIAL_CY, 1.0
+    else:
+        u = _smooth((t - DIAL_MOVE[0]) / (DIAL_MOVE[1] - DIAL_MOVE[0]))
+        r = 78.0 + (15.0 - 78.0) * u
+        x = DIAL_CX + (DIAL_TX - DIAL_CX) * u
+        y = DIAL_CY + (DIAL_TY - DIAL_CY) * u
+        big = u < 0.30
+        a = 1.0
+    return {"x": x, "y": y, "r": r, "outer": min(1.0, (t - DIAL_T0) / 300.0),
+            "inner": max(0.0, min(1.0, (t - 120.0) / COUNTDOWN)),
+            "text": txt, "alpha": a, "seg": seg, "big": big}
 
 
 # ---- the world state for a given time ----------------------------------------------
@@ -379,11 +610,11 @@ def _world_kw(t, *, mode="W", collapse=0.0):
     x_off, scale, floor = cam if cam else (0.0, 1.0, 0.70)
     amp_scale = amp * scale
     # B① 雷霆: the demands do not sit on a still image — the world shakes as they land
-    if 103.84 <= t < 124.0:
+    if 103.84 <= t < scene.B1_END:
         amp_scale *= 1.0 + 0.22 * drive.drum_hit(t)
     # the emotional climb (导演: 画面要有提高和上升) — the world gains energy as 宝哥 does
     rise = _rise(t)
-    if 87.0 <= t < 124.0:
+    if 87.0 <= t < scene.B1_END:
         amp_scale *= 0.88 + 0.24 * rise
 
     # the column: it exists only while someone is singing, and in A① it also waits for
@@ -391,10 +622,74 @@ def _world_kw(t, *, mode="W", collapse=0.0):
     col = entity
     if in_a1:
         col = entity * w_beam
-    if 87.0 <= t < 124.0:
+    if 87.0 <= t < scene.B1_END:
         col *= 1.0 + 0.40 * rise
 
+    # the interlude: the machine steps out of the frame's contents, not only out of the
+    # column. The SIGNAL plate is the machine's instrument and would sit exactly where the
+    # keyboard stands, so it goes dark for the 121 s and comes back with B②.
+    # 导演 (05:31): 2:15–2:25 是"抬起起伏起伏"——呐喊之后 137–145 还有第二个更大的峰，
+    # 147 才落下来进钢琴。实测：drums/bass/other 在 137–145 全在 1.0，146 才掉。
+    surge = None
+    if scene.B1_END <= t < 152.0:
+        surge = _ramp(t, [(136.6, 0.55), (137.6, 0.92), (143.0, 1.0), (146.2, 1.0),
+                          (147.4, 0.12), (150.0, 0.18), (152.0, 0.22)])
+        # 0.70 + 0.45*surge changed the ridge by 25 % — invisible. The fall has to be a
+        # fall: 1.07 at the peak, 0.23 at the bottom.
+        amp_scale *= 0.12 + 0.95 * surge
+        rise = max(rise, 0.70 * surge)
+    # 呐喊 (124–136.6): the demands' own blast. Rings on the beat.
+    shock = 0.0
+    if 124.0 <= t < scene.B1_END:
+        shock = min(1.0, (t - 124.0) / 1.5) * min(1.0, (scene.B1_END - t) / 1.5)
+    # 第二座峰 (137–146.6)：呐喊的余波。环继续从中心扩散，最后一圈正好和钢琴升起的
+    # 时刻重叠——这是"衔接"的关键：旧动作还没走完，新东西已经在同一个中心长出来。
+    if 137.0 <= t < 146.6:
+        shock = max(shock, _ramp(t, [(137.0, 0.30), (139.0, 0.85), (144.0, 1.0),
+                                     (146.0, 1.0), (146.6, 0.0)]))
+    # 咆哮段 (212–230) 把冲击环请回来：这是全曲最满的地方，环踩在鼓上
+    # 环留到 3:32 之后才真正出现：3:10–3:30 只有那条阶梯，否则后面的 solo 无处可去
+    if 210.0 <= t < 242.0:
+        shock = max(shock, _ramp(t, [(210, 0.0), (214, 0.55), (220, 1.0), (230, 1.0),
+                                     (238, 0.55), (242, 0.0)]))
+    in_break = scene.B1_END <= t < 245.79
+    plate_a = 0.0 if in_break else (w_hud if t >= 358.92 else 1.0)
+    # the pot keeps its place at the END of the band's row — the 兰花草 is the seventh chair
+    px_ = 0.925 if in_break else fx
+
+    # ---- 3:10–4:05 吉他 solo：一条连续的上升，不是三段拼起来 ----
+    # 导演 (05:58): 3:10 音色更亮的吉他（几分钟后贝斯进来），3:10–3:30 没有感觉，和后面的
+    # solo 对不上。实测 hi 频段（bands24 第 14 段以后）：190 之前 0.12，192 跳到 5.15，
+    # 194 归 0，198/202/206 每两秒一记，212 起持续 6.16 —— 吉他是 PULSE，不是斜坡。
+    # So brightness follows the hi band (spiky), the mountain follows `climb` (monotone),
+    # and all three devices run from 190 to 245 instead of taking turns in separate windows.
+    #   190–212  稀疏→爬升：低频在地面上推涟漪（ridge 不动，地动）
+    #   212–230  顶格：螺旋从中心张开，冲击环回来，世界抖
+    #   230–245  退：涟漪变稀、光衰，接 B②
+    solo_kw = None
+    if 188.0 <= t < 245.79:
+        climb = _ramp(t, [(188, 0.05), (196, 0.24), (204, 0.46), (212, 0.95),
+                          (222, 1.0), (232, 0.97), (245.79, 0.55)])
+        hi = min(1.0, _hi_energy(t) / 5.5)
+        # ---- 3:10–3:30 只做一件事：两件乐器对答（导演 06:18：这里要"明显"，但不能和
+        # solo 用同一种语言，否则 3:32 无处可去）----
+        # 吉他：从左打进一条细白轨；贝斯：从右答一条粗琥珀轨。
+        rise_amt = _ramp(t, [(188.0, 0.0), (191.0, 0.75), (206.0, 1.0), (210.0, 1.0),
+                             (213.0, 0.0)])
+        ripple = 0.0 if t >= 210.0 else climb * (0.25 + 0.55 * drive.bass(t))
+        spiral = 0.0 if t < 210.0 else _ramp(t, [(210.0, 0.0), (216.0, 0.55), (224.0, 1.0),
+                                                 (236.0, 0.80), (244.0, 0.25)])
+        solo_kw = {"rise": rise_amt, "rise_steps": RISE_STEPS,
+                   "ripple": ripple, "spiral": spiral, "bright": hi}
+        amp_scale *= 0.55 + 0.60 * climb          # 山脊跟着爬，顶点 1.12
+        # 亮度：3:30 之前只允许"脉冲"（吉他每打一下一闪），过了 3:32 才允许"常亮"。
+        # 这样 3:32 的满屏光是新的，不是 3:10 的延长。
+        gate = _ramp(t, [(188.0, 0.0), (206.0, 0.06), (211.0, 0.30), (215.0, 0.95),
+                         (228.0, 1.0), (245.79, 0.55)])
+        rise = max(rise, 0.20 * hi if t < 210.0 else max(0.20 * hi, 0.95 * gate))
+
     return dict(
+        solo=solo_kw,
         # the sky comes with the terrain: plan/12 ② says the WORLD arrives in waves, and
         # a sky that is already there while the mountain is not is a different film.
         sky_a=w_ter if in_a1 else 1.0,
@@ -403,10 +698,10 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         rain_a=rain,
         # the SIGNAL plate is the MACHINE's instrument, not the world — it powered on
         # during the prelude (`load wave`) and stays on. Only A④'s subtraction drains it.
-        plate_a=w_hud if t >= 358.92 else 1.0,
+        plate_a=plate_a,
         pot_a=pot,
         pot_count=1 if in_a1 else cnt,
-        pot_x=0.845 if in_a1 else fx,
+        pot_x=0.845 if in_a1 else px_,
         column_a=col,
         floor=floor,
         amp_scale=amp_scale,
@@ -418,13 +713,145 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         horizon=(1.0 - w_ter) if in_a1 else 0.0,
         # the poem's first line lives in the world during A① (导演三条)
         poem=_poem_state(t),
+        # the interlude's wireframe band (导演拍板 7)
+        stage=_stage_kw(t, sid),
+        shock=shock,
         label=("WORLD // " + sid.upper()) if sid in scene.BREAK_CAMERA else "WORLD // VALLEY",
     )
+
+
+# ---- the interlude's ensemble: who plays in which movement (plan/22 §4) -------------
+# 导演拍板 7: 代码朋克线框器乐, 器乐团并排. The seven movements are not seven screens —
+# they are ONE band, and each movement is the subset of chairs that is playing plus one
+# chair pulled into the frame as the soloist. That is what makes the 121 s read as a
+# performance rather than as a slideshow.
+#
+#   movement   chairs playing (base level)                    solo
+#   boutro     鼓 .85 贝斯 .55 吉他 .80（呐喊的尾巴）            吉他
+#   piano      钢琴 1.00                                       钢琴
+#   duet       钢琴 .75 小提琴 .95                              钢琴
+#   bass       贝斯 1.00 吉他 .65                               贝斯
+#   roar       鼓 .85 吉他 1.00 贝斯 .75                        吉他
+#   cool       鼓 .45 贝斯 .35 吉他 .35 钢琴 .20（逐个下线）      —
+MOVE_LIVE = {
+    "boutro": {"DRUM": 0.85, "BASS": 0.55, "GTR": 0.80, "PNO": 0.05, "VLN": 0.10, "VOX": 0.10},
+    "piano":  {"DRUM": 0.0, "BASS": 0.0, "GTR": 0.0, "PNO": 1.00, "VLN": 0.0, "VOX": 0.0},
+    "duet":   {"DRUM": 0.0, "BASS": 0.10, "GTR": 0.10, "PNO": 0.75, "VLN": 0.95, "VOX": 0.0},
+    "bass":   {"DRUM": 0.30, "BASS": 1.00, "GTR": 0.65, "PNO": 0.10, "VLN": 0.15, "VOX": 0.0},
+    "roar":   {"DRUM": 0.85, "BASS": 0.75, "GTR": 1.00, "PNO": 0.10, "VLN": 0.10, "VOX": 0.0},
+    "cool":   {"DRUM": 0.45, "BASS": 0.35, "GTR": 0.35, "PNO": 0.20, "VLN": 0.0, "VOX": 0.0},
+}
+MOVE_SOLO = {"boutro": "GTR", "piano": "PNO", "duet": "PNO",
+             "bass": "BASS", "roar": "GTR", "cool": None}
+# which stem feeds which chair, so a lit slot is a measured level and not a decoration
+STAGE_STEM = {"DRUM": "drums", "BASS": "bass", "GTR": "other", "PNO": "other",
+              "VLN": "other", "VOX": "vocals"}
+
+# the piano movement's canon, computed once (a strict canon is a delay line: honest)
+_CANON = score3.canon(score3.window(147.0, 162.0))
+
+
+def _stage_kw(t, sid):
+    """The interlude's stage state at t (pure function of t). None outside the interlude."""
+    if not (scene.B1_END <= t < 245.79):
+        return None
+    base = MOVE_LIVE.get(sid, {})
+    live = {}
+    for name, v in base.items():
+        if v <= 0.0:
+            live[name] = 0.0
+            continue
+        stem = STAGE_STEM[name]
+        lv = {"drums": drive.drums, "bass": drive.bass,
+              "other": drive.other, "vocals": drive.vocals}[stem](t)
+        # the measured level breathes inside the movement's base: a chair that is playing
+        # looks like it is playing NOW, not like a slot that was switched on
+        live[name] = v * (0.42 + 0.58 * lv)
+    mv = next(((s[1], s[2]) for s in scene.BREAK_SECTIONS if s[0] == sid), (t, t + 1.0))
+    return {
+        "kind": sid,
+        "notes": score3.NOTES,
+        "alt": _CANON if sid in ("piano", "duet") else None,
+        "live": live,
+        "solo": MOVE_SOLO.get(sid),
+        "mv": mv,
+    }
+
+
+# ---- the cut: a CRT channel change, not a telegram from A to B ----------------------
+# 导演 (2026-10-27): 第二篇章的切点"只有画面切换"，生硬。The four visible cuts in ch2 are
+# geometry teleports — at 84.01 the entity column goes 512 -> 96 px and the world's left
+# edge jumps 528 -> 112 in ONE frame. Half the picture is re-laid-out in 1/24 s and
+# nothing happens in between, so it reads as a switch rather than as an edit.
+#
+# The film already owns the gesture that can carry a cut: the laser-disc player changing
+# channel. A CRT collapse is that gesture applied to the whole raster — the picture
+# squashes to a horizontal line, the line opens into the next picture. It hides the
+# re-layout WITHOUT dissolving one image into another: 导演拍板 3 rules out the dissolve,
+# and this is not one, it is a shutter. Nothing inside a shot changes.
+#
+# Only mode changes are listed: two neighbouring shots in the SAME layout are invisible
+# anyway (the drawing is continuous in t), so a shutter there would invent a cut that the
+# picture does not have. 103.84 (into B①) and 136.6 (into the interlude) are chapter
+# boundaries: 103.84 gets one shutter, 136.6 stays naked (the machine simply withdraws) — the interlude entry is already a 1.2 s collapse ramp.
+CUT_FRAMES = 3.0        # length of the whole gesture, in frames (0 disables it)
+# 103.84 is a chapter boundary, so it is not a mode change — but it is the loudest cut in
+# the film (quiet valley -> four demands over the whole world), and 导演 said the entry
+# into B① is the most abrupt moment in it. One shutter there costs one frame.
+_EXTRA_CUTS = (103.84,)
+_CUTS = tuple(b[1] for a, b in zip(shots.SNAPPED, shots.SNAPPED[1:]) if a[3] != b[3]) \
+    + _EXTRA_CUTS
+
+
+def _squash(img: Image.Image, s: float) -> Image.Image:
+    """Collapse the raster into a band around the middle, and leave the phosphor line.
+
+    `s` is the surviving height (1 = untouched, 0 = a single line). The image is resized
+    rather than clipped, because a CRT does not reveal a picture — it squeezes it, and the
+    squeeze is what tells the eye "the machine changed something", not "the film lied".
+    """
+    if s >= 0.998:
+        return img
+    W, H = img.size
+    band = max(1, int(round(H * max(0.0, s))))
+    cy = H // 2
+    out = Image.new("RGB", (W, H), (2, 3, 8))
+    out.paste(img.resize((W, band), Image.BILINEAR), (0, cy - band // 2))
+    d = ImageDraw.Draw(out)
+    heat = 1.0 - min(1.0, s / 0.55)
+    if band <= 6:
+        d.rectangle([0, cy - band // 2, W, cy + band // 2],
+                    fill=fade((255, 250, 236), 0.55 + 0.45 * heat))
+    if heat > 0.01:
+        d.line([(0, cy), (W, cy)], fill=fade((255, 246, 224), 0.90 * heat), width=2)
+        for k in (1, 2, 3, 5):
+            a = 0.14 * heat / (k * 0.9)
+            d.line([(0, cy - k * 3), (W, cy - k * 3)], fill=fade(AMBER, a))
+            d.line([(0, cy + k * 3), (W, cy + k * 3)], fill=fade(AMBER, a))
+    return out
+
+
+def _cut_shutter(t: float):
+    """The squashed height at t, or None if t is not on a cut."""
+    if CUT_FRAMES <= 0 or not _CUTS:
+        return None
+    h = (CUT_FRAMES / 2.0) / FPS
+    for c in _CUTS:
+        d = abs(t - c)
+        if d < h:
+            return (d / h) ** 0.85
+    return None
 
 
 # ---- the frame ----------------------------------------------------------------------
 def frame(t: float) -> Image.Image:
     """One frame of the four-zone film. Pure function of t."""
+    img = _plain_frame(t)
+    s = _cut_shutter(t)
+    return img if s is None else _squash(img, s)
+
+
+def _plain_frame(t: float) -> Image.Image:
     # the ending chain is layout-independent and already finished: GAME SET, hard cut,
     # 3% black, the cursor, [谢谢收听]. Reused as-is (plan/19 §2 row 4).
     if t >= 386.5:
@@ -453,11 +880,11 @@ def _body(t: float) -> Image.Image:
 
     # the entity column withdraws during the interlude: the machine physically gives the
     # frame to the world (layout4's own docstring).
-    collapse = 0.0
-    if 124.0 <= t < 245.79:
-        u = min(1.0, (t - 124.0) / 1.2) if t < 138.0 else \
-            min(1.0, max(0.0, 1.0 - (t - 240.0) / 5.0))
-        collapse = u
+    collapse = _form_collapse(t)
+    if scene.B1_END <= t < 245.79:
+        u = min(1.0, (t - scene.B1_END) / 1.2) if t < 147.0 else \
+            min(1.0, max(0.0, 1.0 - (t - 244.20) / 1.60))
+        collapse = max(collapse, u)
     if mode == "V":
         collapse = 1.0
 
@@ -483,14 +910,16 @@ def _body(t: float) -> Image.Image:
     kw = _world_kw(t, mode=mode, collapse=collapse)
     # B① 界面过载（plan/05 §4: 评分冲顶、播放列表被挤、口令闪）— the machine is being
     # blasted; the interface visibly suffers for it.
-    if 103.84 <= t < 124.0:
-        ov = min(1.0, max(0.0, (t - 103.84) / 1.6)) * min(1.0, max(0.0, (124.0 - t) / 1.2))
+    if 103.84 <= t < scene.B1_END:
+        # the machine is blasted from the first demand all the way through the shout
+        ov = min(1.0, max(0.0, (t - 103.84) / 1.6)) * min(1.0, max(0.0, (scene.B1_END - t) / 1.2))
     else:
         ov = 0.0
     ent = dict(tray=0.0, disc=True, rpm=8.3 if t >= 2.24 else 0.0,
                state=state, power="PLAY" if playing else "ON",
                nameplate=True, squeeze=ov)
 
+    cs = _cell_state(t)
     boot = _boot_state(t)
     paper_kw = dict(sub=None, horizon=0.10)
     if mode == "P":
@@ -507,6 +936,9 @@ def _body(t: float) -> Image.Image:
         chars=chars, typed=typed, struck=struck, cursor=cursor,
         state=state, playing=playing,
         old=old, cue=cue, big=big, times=times, boot=boot, overload=ov,
+        demand=_demand_state(t),
+        cell=(cs or {}).get("cell", 0.0), inst=cs,
+        cell_px=(cs or {}).get("w", 0.0), status=_countdown(t), dial=_dial_state(t),
         glow=0.30 + 0.16 * _rise(t),
         log=_console_for(t) if boot is not None else None)
 
@@ -522,3 +954,49 @@ if __name__ == "__main__":
         p = out / f"t{t:07.2f}.png"
         frame(t).save(p)
         print("wrote", p.name)
+
+
+_BANDS = None
+
+
+def _phrases(onsets, gap: float = 0.45):
+    """Group onsets into phrases — a run of notes with no rest longer than `gap`.
+
+    The unit that answers another phrase is the phrase, not the note (see tk.trade_rails).
+    """
+    out = []
+    for ev in onsets:
+        tn = ev[0]
+        if out and tn - out[-1][1] <= gap:
+            out[-1][1] = tn
+        else:
+            out.append([tn, tn])
+    return [(a, b) for a, b in out]
+
+
+PHR_GTR = _phrases(score3.GTR)
+PHR_BASS = _phrases(score3.BASS)
+# 3:10–3:30 的台阶：吉他每打一下抬一级（188–214 之间）
+RISE_STEPS = [(e[0], 0.55 + 0.9 * e[2]) for e in score3.GTR if 188.0 <= e[0] <= 214.0]
+
+
+def _hi_energy(t: float) -> float:
+    """Energy in the top bands (14..22) at t — the guitar's brightness, not its loudness."""
+    global _BANDS
+    if _BANDS is None:
+        import numpy as np
+        fp = ROOT / "data" / "audio" / "bands24.npy"
+        _BANDS = np.load(fp) if fp.exists() else False
+    if _BANDS is False:
+        return 0.0
+    i = min(len(_BANDS) - 1, max(0, int(t * 24)))
+    return float(_BANDS[i, 14:].sum())
+
+
+def _undo_at(t):
+    """The one character that goes back to its pre-rewrite version, for 0.6 s (plan/16 §2.3).
+
+    Defined at the very bottom on purpose: earlier versions of this file kept losing it to
+    wholesale section replacements. Order does not matter at call time.
+    """
+    return scene.undo_at(t)

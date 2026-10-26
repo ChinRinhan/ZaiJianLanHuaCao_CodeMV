@@ -11,7 +11,9 @@
 | `tk.py` | 绘图原语：噪声、地形、天空、光柱、盆栽兰、雨、仪表、后期、薄纱 | 几乎全部 |
 | `clock.py` | 音乐时钟：节拍网格、`pulse(t)`、`snap()` | drive / shots / scene4 |
 | `drive.py` | 四轨信号（SCORE / LEVEL 等推出为真函数，不再写死） | scene / scene4 |
-| `layout4.py` | **四区版式**：512 px 实体 + 752 px 世界 + 80 px ops 列 + 90 px token 带 | scene4 |
+| `layout4.py` | **五区版式**：实体（512，器乐格在时 384）+ 世界 + **器乐格 292** + 80 px ops 列 + 90 px token 带。`zones(collapse, mode, cell, cell_px)` | scene4 |
+| `instruments.py` | **器乐格与放大视图**：`cellpanel`（多轨）+ 六种画法（六线谱/四线谱/步进格/竖条/曲线/竖柱）+ `stage`（钢琴的落音符与键盘） | layout4、scene4 |
+| `score3.py` | 间奏音符表 + 三件乐器的 onset 表（`data/onsets_*.json`，78–250 s） | scene4 |
 | `preview.py` | 旧双屏版式 + 开场 / 逐格 CRT / GAME SET / 3% 黑场 | scene、scene4（复用 `intro_scene` `ending_frame`） |
 | `crt.py` `intro_fill.py` | 前奏七模块上电、等待嗓子状态 | preview / scene4 |
 | `shots.py` | A① 十镜头表（严格照 `plan/14 §2.3`） | scene4 |

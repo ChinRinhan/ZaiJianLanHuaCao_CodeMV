@@ -135,6 +135,12 @@ def intro_layer(t: float) -> float:
     return sum(1 for lt, _, _ in INTRO_LAYERS if t >= lt)
 
 
+# 导演 (2026-10-27): 第二乐章（A①+B①）延长到 2:16，为一个整体。
+# Measured, not rounded: the vocal stem's last window above -45 dB ends at 136.6 s
+# (at 136.0 it still carries -37 dB of tail). So the shout — the demands' climax — belongs
+# to B①, and the interlude proper begins where the voice is actually gone.
+B1_END = 136.6
+
 SECTIONS = [
     # Structure follows 再见兰花草-段落结构.md (v2) — the doc the director pointed at.
     # That doc's own table has ±1 s error, so exact sung times still come from the LRC and the
@@ -143,9 +149,9 @@ SECTIONS = [
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
     ("intro", 0.0, 67.85, 0.00, 0.00, 0.00, 0.00, 0.00, 0.0, 0.55, 0.72, 1),
     ("A1", 67.85, 103.84, 0.12, 0.00, 0.55, 0.55, 0.10, 0.0, 0.85, 0.72, 1),
-    # B① ends at 124 s per the doc (2:04), not at the last sung syllable (121.9). The shout
-    # (呐喊) sits at 124-136 and belongs to the interlude's opening blast, not to B①.
-    ("B1", 103.84, 124.0, 0.35, 0.00, 0.65, 0.70, 0.15, 0.3, 1.00, 0.70, 1),
+    # B① now runs to B1_END (136.6): 导演 wants the four demands and the shout they cause
+    # to be ONE movement, and 136.6 is where the vocal stem actually stops. See B1_END.
+    ("B1", 103.84, B1_END, 0.35, 0.00, 0.65, 0.70, 0.15, 0.3, 1.00, 0.70, 1),
     ("B2", 245.79, 266.31, 0.10, 0.00, 0.60, 0.35, 0.00, 0.0, 0.80, 0.70, 1),
     # A②/A③ are each two 23 s half-blocks (doc §2.1); each half gets its own cue line.
     ("A2a", 266.31, 289.64, 0.00, 0.30, 0.80, 0.80, 0.10, 0.2, 1.00, 0.66, 3),
@@ -170,7 +176,7 @@ def rms_at(t: float) -> float:
 def section_at(t: float):
     """The design section for t. The interlude resolves to its named movement, so the picture
     can follow the instrument that is playing rather than a single 121-second block."""
-    if 124.0 <= t < 245.79:
+    if B1_END <= t < 245.79:
         for s in BREAK_SECTIONS:
             if s[1] <= t < s[2]:
                 return s
@@ -180,23 +186,24 @@ def section_at(t: float):
     return SECTIONS[-1]
 
 
-# ---- the 121-second interlude, in seven movements ----------------------------
-# The doc puts the interlude at 2:04-4:05 (124-245). The analysis video's captions then name
-# the instruments movement by movement, and the stem table (plan/18 §6) matches it window for
-# window, so each movement can be designed around an instrument instead of an energy level.
+# ---- the interlude, in six movements ------------------------------------------
+# 导演 (2026-10-27): 呐喊 belongs to B①, so the interlude proper starts at B1_END (136.6)
+# and the shout is no longer one of its movements. What is left of the analysis captions
+# still lines up window for window with the stems, so each movement can be designed around
+# an instrument instead of an energy level.
 #
-#   window     OCR caption (B站解析)                  stems (dBFS)            design
-#   124-138    "随着鼓的重击，宝哥发出高亢响亮的呐喊"   vocals -28~-33          the shout: full blast
-#   138-146.5  "呐喊结束，电吉他与鼓收尾"               drums -29 bass -31      the tail, thinning
-#   147-162    "细小的钢琴声…像巴赫的巴洛克"            only other -39.3        almost dark: one thin line
-#   162-190    "小提琴与钢琴交互进行"                   only other -30.8        two lines trading
-#   190-212    "贝斯清晰可闻，电吉他以不同方式咆哮"     bass -31.7 drums -34.2  bass visible again
-#   212-230    "电吉他尽情咆哮"                         drums -25.3 (loudest)   full-on, beat drives it
-#   230-245.79 同上（人声轨空）                         drums -25.5             thinning into B②
+#   window        OCR caption (B站解析)                  stems (dBFS)            design
+#   136.6-147     "呐喊结束，电吉他与鼓收尾"               drums -29 bass -31      the tail, thinning
+#   147-162       "细小的钢琴声…像巴赫的巴洛克"            only other -39.3        almost dark: one thin line
+#   162-190       "小提琴与钢琴交互进行"                   only other -30.8        two lines trading
+#   190-212       "贝斯清晰可闻，电吉他以不同方式咆哮"     bass -31.7 drums -34.2  bass visible again
+#   212-230       "电吉他尽情咆哮"                         drums -25.3 (loudest)   full-on, beat drives it
+#   230-245.79    同上（人声轨空）                         drums -25.5             thinning into B②
 BREAK_SECTIONS = [
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
-    ("shout", 124.00, 138.0, 0.40, 0.00, 0.60, 0.70, 0.05, 0.5, 1.10, 0.72, 1),
-    ("boutro", 138.0, 147.0, 0.30, 0.00, 0.52, 0.35, 0.00, 0.2, 0.75, 0.72, 1),
+    # 呐喊 (124–136.6) 归 B①（宣言的爆点）。这里剩的是它的尾巴：鼓与吉他收尾，
+    # 世界还站着但气息在退，随后钢琴单独进来。
+    ("boutro", B1_END, 147.0, 0.32, 0.00, 0.55, 0.44, 0.02, 0.3, 0.92, 0.72, 1),
     ("piano", 147.0, 162.0, 0.20, 0.10, 0.30, 0.00, 0.00, 0.0, 0.28, 0.72, 1),
     ("duet", 162.0, 190.0, 0.25, 0.05, 0.40, 0.00, 0.00, 0.0, 0.40, 0.60, 1),
     ("bass", 190.0, 212.0, 0.30, 0.00, 0.45, 0.00, 0.00, 0.0, 0.55, 0.78, 1),
@@ -308,7 +315,7 @@ def score_at(t: float) -> float:
     """
     if t < 67.85 or t >= END_CUT:
         return 0.0
-    if 124.0 <= t < 245.79:
+    if B1_END <= t < 245.79:
         # the interlude: no vocal, so there is nothing to rate. A small residual shows the
         # machine is still listening (it never reaches zero until the song ends).
         return round(max(0.4, 6.0 * drive.drums(t)), 1)
@@ -337,7 +344,7 @@ def score_at(t: float) -> float:
     # B① is the loudest 18 s of the song (plan/05 §4: 界面过载，评分冲顶 99.4 封顶).
     # The machine is being blasted; the meter pins at its ceiling and twitches there.
     # The ceiling stays 99.4 — the machine can never award 100 (plan/04 §3).
-    if 103.84 <= t < 124.0:
+    if 103.84 <= t < B1_END:
         u = min(1.0, max(0.0, (t - 103.84) / 2.0))
         raw = raw + (1.0 - raw) * u * (0.88 + 0.12 * drive.drums(t))
 
@@ -370,8 +377,12 @@ def _b1_word(t: float):
         if l["t"] <= t and l["text"].startswith("给我"):
             nxt = LINES[i + 1]["t"] if i + 1 < len(LINES) else l["t"] + 2.2
             if l["t"] <= t < nxt:
-                a_in = min(1.0, (t - l["t"]) / 0.28)
-                a_out = min(1.0, max(0.0, (nxt - t) / 0.26))
+                # 导演: 四句之间有一段"字没了"的空档（旧 a_out 在新句起点归零，新句又从
+                # 零起步，中间约 0.3 s 屏幕上没有字，读成闪烁）。Now the outgoing phrase
+                # only dims in its last 3 frames and the incoming one arrives already lit:
+                # the slot never shows an empty beat, the phrases hand over like stamps.
+                a_in = 0.42 + 0.58 * min(1.0, (t - l["t"]) / 0.16)
+                a_out = min(1.0, max(0.0, (nxt - t) / 0.12))
                 return l["text"], a_in, a_out, t - l["t"]
     return None, 0.0, 0.0, 0.0
 
@@ -420,7 +431,7 @@ def _normal(t: float):
     # B①: the demands are stamped across the whole screen, not typed into the LCD
     b1_big = None
     b1_alpha = 0.0
-    if 103.84 <= t < 124.0:
+    if 103.84 <= t < B1_END:
         w, a_in, a_out, _age = _b1_word(t)
         if w:
             b1_big = w

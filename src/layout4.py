@@ -32,6 +32,7 @@ from PIL import Image, ImageDraw, ImageEnhance
 import clock
 import crt
 import drive
+import instruments
 import tk
 from tk import AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix
 
@@ -39,6 +40,8 @@ W, H = tk.W, tk.H
 PANEL_BG = (8, 7, 5)
 
 ENT_W = 512
+ENT_W_CELL = 384        # when the instrument column is up the machine gives 128 px back
+CELL_W = 292            # 器乐格：画面坐标里的固定第五区，见 zones()
 ENT_W_MIN = 96
 GAP = 8
 OPS_W = 80
@@ -60,7 +63,8 @@ PLAYLIST = [
 ]
 
 
-def zones(collapse: float = 0.0, mode: str = "W"):
+def zones(collapse: float = 0.0, mode: str = "W", cell: float = 0.0,
+          cell_px: float = 0.0, status=None, dial=None):
     """The four zones, and the three shot modes that re-weight them.
 
     W  the full machine: entity left, world right, ops column, token band.
@@ -73,6 +77,7 @@ def zones(collapse: float = 0.0, mode: str = "W"):
     code with different rectangles and different type sizes.
     """
     u = max(0.0, min(1.0, collapse))
+    c = max(0.0, min(1.0, cell))
     if mode == "P":
         return {
             "head": (0, 0, W, HEAD_H),
@@ -81,19 +86,33 @@ def zones(collapse: float = 0.0, mode: str = "W"):
             "ops": (0, 0, 0, 0),
             "paper": (8, BODY_Y0, W - 8, BODY_Y1),
             "tokens": (0, 0, 0, 0),
+            "cell": (0, 0, 0, 0),
         }
-    ew = int(round(ENT_W + (ENT_W_MIN - ENT_W) * u))
+    # The instrument column is a ZONE, not an overlay: it takes its width out of the
+    # world and gives it back when it leaves, so nothing is ever covered. 导演 (03:17):
+    # 「做的太大的话，30 秒转场的时候该怎么办」— at 99.30 the layout flips V→W, and an
+    # overlay measured in world percentages would jump. In frame coordinates it cannot.
+    base_w = ENT_W + (ENT_W_CELL - ENT_W) * c
+    ew = int(round(base_w + (ENT_W_MIN - base_w) * u))
+    cw = int(round(cell_px if cell_px > 0 else CELL_W * c))
+    if cw < 3:
+        cw = 0
     ex0 = 8
     ex1 = ex0 + ew
     cx0 = ex1 + GAP
-    cx1 = W - 8 - OPS_W - GAP
+    cx1 = W - 8 - OPS_W - GAP - (cw + GAP if cw else 0)
+    cell_rect = (W - 8 - OPS_W - GAP - cw, BODY_Y0, W - 8 - OPS_W - GAP, BODY_Y1) if cw else (0, 0, 0, 0)
     return {
         "head": (0, 0, W, HEAD_H),
         "entity": (ex0, BODY_Y0, ex1, BODY_Y1),
         "content": (cx0, BODY_Y0, cx1, BODY_Y1),
-        "ops": (cx1 + GAP, BODY_Y0, W - 8, BODY_Y1),
+        # ops is pinned to the right edge, NOT to the content's right edge: once the
+        # instrument column sits between them, `cx1 + GAP` would stretch the meters across
+        # everything the column took (SCORE became a 700 px bar). Caught at 110 s.
+        "ops": (W - 8 - OPS_W, BODY_Y0, W - 8, BODY_Y1),
         "paper": (0, 0, 0, 0),
         "tokens": (8, H - TOK_H - 2, W - 8, H - 8),
+        "cell": cell_rect,
     }
 
 
@@ -537,7 +556,7 @@ def entity(t, rect=None, *, tray=0.0, disc=True, rpm=8.3, state="PLAY", power="O
 def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, plate_a=1.0,
             pot_a=1.0, column_a=1.0, floor=0.70, seed=11, label="WORLD // VALLEY",
             amp_scale=1.0, x_off=0.0, pot_h=235.0, pot_count=1, pot_x=0.845, horizon=0.0,
-            boot=None, poem=None, rise=0.0):
+            boot=None, poem=None, rise=0.0, stage=None, shock=0.0, solo=None):
     rect = rect or zones()["content"]
     x0, y0, x1, y1 = rect
     w, h = x1 - x0, y1 - y0
@@ -570,6 +589,24 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
         img = tk.entity(img, w * 0.40, h * 0.40, t, column_a * (0.18 + 0.82 * v_sig))
 
     tk.grass(img, R, t, ridge_a, seed)
+    # 呐喊: rings leave the centre on every beat (the shout's own punctuation)
+    if shock > 0.01:
+        tk.shock_ring(img, w * 0.44, h * 0.46, 1.0 - clock.pulse(t), shock,
+                      color=AMBER, alpha=0.72, rings=4)
+    # 3:10–4:05 吉他 solo：低频在地面上推涟漪，顶点时螺旋张开。三个动效各自绑定一件乐器，
+    # 所以观众不用看标签也知道是谁在动。
+    if solo:
+        if solo.get("rise", 0) > 0.01:
+            tk.rise_line(img, R, t, solo["rise_steps"], amount=solo["rise"])
+        if solo.get("ripple", 0) > 0.01:
+            # on the ridge line, not in the dark below it: 0.74 fell under the silhouette
+            # and nobody saw it (checked at 190/196/204)
+            tk.ground_ripple(img, R, h * 0.645, 1.0 - clock.pulse(t),
+                             solo["ripple"], ripples=3, color=(210, 226, 255))
+        if solo.get("spiral", 0) > 0.01:
+            # drawn twice with a small offset: at the peak one pass reads as a hairline
+            tk.spiral(img, w * 0.44, h * 0.46, t, solo["spiral"] * 0.9)
+            tk.spiral(img, w * 0.44 + 2, h * 0.46 + 1, t, solo["spiral"] * 0.55)
     # ch1's floating read-outs (grad / rms / tok ...) — the pane reads as a TUI, not a
     # wallpaper. Gated on the HUD wave so A④ can still drain them away.
     if plate_a > 0.05:
@@ -602,6 +639,13 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
     # the poem's first line lives in the world (导演: 只放首句，静淡一行)
     if poem is not None:
         _poem(img, R, t, poem, seed=seed, amp_scale=amp_scale, x_off=x_off, floor=floor)
+        d = ImageDraw.Draw(img)
+
+    # the interlude's ensemble (instruments.py) — the band, the roll, the keyboard. Drawn
+    # inside the world so it gets the film's scanlines and bloom like everything else.
+    if stage is not None:
+        st = dict(stage)
+        instruments.stage(img, R, t, alpha=st.pop("alpha", 1.0), **st)
         d = ImageDraw.Draw(img)
 
     d = ImageDraw.Draw(img)
@@ -720,7 +764,7 @@ def ops(t, rect=None, *, score=0.0, level=0.0, boot=None, overload=0.0):
 
 
 def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
-           label="LYRIC", log=None, old=None, times=None, sub=None):
+           label="LYRIC", log=None, old=None, times=None, sub=None, status=None):
     """The bottom band. Two roles, one place:
 
     log  -> boot lines, printed one by one with decoding glyphs (the opening)
@@ -754,6 +798,19 @@ def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
         return img
 
     tk.text(d, (12, 6), label, font(tk.MONO, 9), AMBER, 0.40)
+
+    # 导演 (04:37): 倒计时先在中间以代码动效生成，再落到下面。It lives here for the rest
+    # of the film: two rings (the 5:00 promise that never closes, the 2:25 that does) and
+    # the number. `status` = (text, alpha, done, outer, inner).
+    if status is not None:
+        s_, a_, done, outer, inner = status
+        cx = w - 104
+        _dial(img, cx, 30, 15, outer=outer, inner=inner, text="", alpha=a_, seg=1.0)
+        f40 = font(tk.MONO_B, 19)
+        col = RED if done else AMBER
+        tk.text(d, (cx + 22, 19), s_, f40, col, 0.95 * a_)
+        tk.text(d, (cx + 22, 40), "TILL CHORUS" if not done else "NOW",
+                font(tk.MONO, 7), col, 0.32 * a_)
 
     top = 26
     if old:
@@ -910,8 +967,9 @@ def paper(t, rect=None, *, chars, typed=0, struck=None, cursor=False, label="LYR
 def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0.0, level=0.0,
           chars=None, typed=0, struck=None, cursor=False, state="READY", playing=False,
           log=None, paper_kw=None, old=None, cue=None, big=None, undo=None, times=None,
-          boot=None, overload=0.0, glow=0.34):
-    z = zones(collapse, mode)
+          boot=None, overload=0.0, glow=0.34, demand=None, cell=0.0, inst=None,
+          cell_px: float = 0.0, status=None, dial=None):
+    z = zones(collapse, mode, cell, cell_px)
     img = Image.new("RGB", (W, H), BG)
 
     def _workbench(dst):
@@ -928,6 +986,13 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
             dst.paste(content(t, z["content"], boot=boot, **(content_kw or {})), z["content"][:2])
             dst.paste(ops(t, z["ops"], score=score, level=level, boot=boot,
                           overload=overload), z["ops"][:2])
+            ch = z.get("cell") or (0, 0, 0, 0)
+            if inst and ch[2] - ch[0] > 30:
+                instruments.cellpanel(dst, ch, t, tracks=inst.get("tracks", []),
+                                      alpha=inst.get("alpha", 1.0),
+                                      sub=inst.get("sub", ""),
+                                      strum=inst.get("strum", -1.0),
+                                      solo=inst.get("solo"))
 
     # `mount ui/` opens the whole workbench through one CRT aperture. The console (token
     # band) is drawn AFTER, always lit — the command that caused the mount must stay
@@ -937,7 +1002,8 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
     else:
         _reveal(img, (0, 0, W, z["tokens"][1] - 2), _boot_u(boot, "skeleton"), _workbench)
         img.paste(tokens(t, z["tokens"], chars=chars or [], typed=typed, struck=struck,
-                         cursor=cursor, log=log, old=old, times=times), z["tokens"][:2])
+                         cursor=cursor, log=log, old=old, times=times, status=status),
+                  z["tokens"][:2])
 
     # standby: the machine goes dark and waits for the voice (64 s)
     idle = float((boot or {}).get("idle", 0.0))
@@ -946,8 +1012,16 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
 
     # the demands land BEFORE post() so the film's scanlines, bloom and vignette treat
     # them like every other pixel — the type is in the picture, not on top of it
+    if demand:
+        _demand_slot(img, demand, z.get("cell") or None)
     if big:
-        _big_line(img, big[0], big[1], age=big[2] if len(big) > 2 else 9.9)
+        _big_line(img, big[0], big[1], age=big[2] if len(big) > 2 else 9.9,
+                  box=z.get("cell") or None)
+    if dial:
+        _dial(img, dial["x"], dial["y"], dial["r"], outer=dial["outer"],
+              inner=dial["inner"], text=dial["text"], alpha=dial["alpha"],
+              seg=dial["seg"], label=dial.get("label", "TILL CHORUS"),
+              big=dial.get("big", False))
     img = tk.post(img, glow)
     if cue:
         _cue_line(img, cue, t)
@@ -961,7 +1035,213 @@ def _cue_line(img, cue, t):
     tk.text(d, (16, H - TOK_H - 26), ">> " + cue, font(tk.MONO_B, 15), RED, 0.95 * blink)
 
 
-def _big_line(img, word, alpha, age=9.9):
+BIG_CAP = 60            # 大字字号上限（原 88）。留出字位框的内边距，见 _demand_slot
+DEMAND_ROWS = 5         # 01–04 = 四句「给我…」；05 = 一直没被要的那一件：时间
+
+
+def _demand_geom(box=None, shrink: float = 0.0):
+    """The form's rectangle, and the baseline the type sits on.
+
+    `box` is the instrument column's rect: 导演 (04:12) 「慢慢把界面转化成器乐合奏」 — the
+    form is not a fourth thing that appears, it is the column grown wide. So the form takes
+    the column's horizontal extent and only decides its own height.
+    """
+    cy = H * 0.42
+    by = cy - BIG_CAP * 0.5
+    if box and box[2] - box[0] > 40:
+        # the form IS the sheet: it takes the whole column, not a strip in the middle of
+        # it. A 124 px form floating inside a 640x576 panel left two thirds of the panel
+        # dead — seen at 110 s.
+        # `shrink` rolls the sheet up from the top until only the five boxes are left, so
+        # the column can go back to being the band without the sheet ever popping.
+        y0 = (box[1] + 10) + ((box[3] - 96) - (box[1] + 10)) * max(0.0, min(1.0, shrink))
+        return (box[0] + 8, y0, box[2] - 8, box[3] - 10), by
+    x0 = ENT_W + GAP + 8
+    x1 = W - 8 - OPS_W - GAP
+    return (x0 + 8, by - 34, x1 - 8, by + BIG_CAP * 1.16 + 36), by
+
+
+def _demand_slot(img, st, box=None):
+    """B① 字位：一张五格的表，四格有章，第五格空着。
+
+    The type used to appear out of nothing at full width — no cause, no place
+    (导演: 1:43 太突兀). A frame alone is not enough either: the four demands are the
+    premonition of two later moments, and a premonition needs an UNFILLED SLOT.
+
+      bottom strip 01–04   four boxes, one per 「给我…」, each stamped when its phrase
+                           lands. They stay stamped.
+      bottom strip 05      empty from the first frame — a dashed `--:--`. It lights at
+                           117.39 「你只要给我五分钟」 with 05:00 and runs down for real.
+                           Four things were asked for; the fifth was never asked for, and
+                           it is the one the song needs.
+      dotted rule below    one tick per stamped phrase, and every tick flares on the
+                           OFF-BEAT — the smallest cell of the syncopation the record
+                           ends on (measured: A① puts its weight on the beat, A④ moves it
+                           to 0.25/0.58 inside the beat). The ending is already ticking
+                           here, at 1:43.
+
+    Horizontal, not a left column: at 1280 px a vertical index of five 7 px rows is
+    unreadable, while five boxes in a row read as a form at a glance.
+
+    Drawn BEFORE _big_line so the glyphs sit inside the frame, never under it.
+    """
+    if not st:
+        return
+    a = st.get("alpha", 1.0)
+    if a <= 0.01:
+        return
+    d = ImageDraw.Draw(img)
+    rect, by = _demand_geom(box, float(st.get("shrink", 0.0)))
+    x0, y0, x1, y1 = rect
+    u = st.get("pen", 1.0)
+    n_st = int(st.get("stamped", 0))
+    clock_on = bool(st.get("clock"))
+
+    # the frame has to read over a shaking, bright ridge
+    if u >= 0.98:
+        d.rectangle([x0 - 1, y0 - 1, x1 + 1, y1 + 1], outline=fade((2, 3, 8), 0.55 * a))
+    _pen_frame(d, rect, u, AMBER, 0.34 * a)
+    if u < 0.98:
+        return
+
+    # ---- the five boxes, along the bottom edge, inside the frame ----
+    fb = font(tk.MONO, 9)
+    ys = y1 - 17
+    xs = x0 + 12
+    for i in range(DEMAND_ROWS):
+        last = (i == DEMAND_ROWS - 1)
+        done = i < n_st
+        cur = (i == n_st and not clock_on) or (last and clock_on)
+        ca = 0.70 if cur else (0.46 if done else 0.20)
+        tk.text(d, (xs, ys - 1), "%02d" % (i + 1), fb, AMBER, ca * a)
+        bx = xs + 18
+        if done:
+            d.rectangle([bx, ys, bx + 6, ys + 6], fill=fade(AMBER, 0.85 * a))
+        elif last:
+            # the empty slot: a dashed outline, and the time it will hold
+            for k in range(3):
+                d.line([(bx, ys + 3), (bx + 2, ys + 3)], fill=fade(AMBER, 0.35 * a))
+                d.line([(bx, ys + 6), (bx + 2, ys + 6)], fill=fade(AMBER, 0.35 * a))
+                d.line([(bx + 4, ys + 3), (bx + 6, ys + 3)], fill=fade(AMBER, 0.35 * a))
+                d.line([(bx + 4, ys + 6), (bx + 6, ys + 6)], fill=fade(AMBER, 0.35 * a))
+            tk.text(d, (bx + 12, ys - 1), st.get("clock") or "--:--", fb, AMBER,
+                    (0.72 if clock_on else 0.28) * a)
+        else:
+            d.rectangle([bx, ys, bx + 6, ys + 6], outline=fade(AMBER, 0.20 * a))
+        xs += 62 if last else 54
+
+    # ---- header chips ride ON the top edge (never over the type) ----
+    # The chips sit on an opaque BG patch, and an opaque patch cannot fade — at 0.1 alpha
+    # they used to leave two black bars lying on the ridge. Below half light they are
+    # skipped; what is left then is the clock, which is exactly what should be left.
+    if a >= 0.55:
+        f = font(tk.MONO, 9)
+        lab = " DEMAND %02d/04 " % min(n_st, 4) if n_st else " DEMAND --/04 "
+        tw = d.textlength(lab, font=f)
+        d.rectangle([x0 + 10, y0 - 6, x0 + 14 + tw, y0 + 8], fill=BG)
+        tk.text(d, (x0 + 12, y0 - 5), lab, f, AMBER, 0.55 * a)
+        r = " CLOCK %s " % st.get("clock") if clock_on else (
+            " HOLD %.2fs " % st["hold"] if st.get("hold") else None)
+        if r:
+            rw = d.textlength(r, font=f)
+            d.rectangle([x1 - 14 - rw, y0 - 6, x1 - 10, y0 + 8], fill=BG)
+            tk.text(d, (x1 - 12 - rw, y0 - 5), r, f, AMBER, 0.40 * a)
+
+    # ---- 两句「直到那天」接住「五分钟」----
+    # 导演 (04:12): 1:53 那两句加一个连续的效果，接住「五分钟」。So each line draws one
+    # unbroken stroke across the world at the 05 row's height, and the second one lands in
+    # the empty slot — the frame the line arrives is the frame the clock is assigned.
+    xs_from = float(st.get("x_from", rect[0] - 300))
+    ys5 = y1 - 17 + 3
+    for k, key in enumerate(("line1", "line2")):
+        u = float(st.get(key, 0.0))
+        if u <= 0.0:
+            continue
+        yy = ys5 - k * 7
+        xe = xs_from + (rect[0] + 12 - xs_from) * min(1.0, u)
+        d.line([(xs_from, yy), (xe, yy)], fill=fade(AMBER, (0.55 - 0.12 * k) * a))
+        if u < 1.0:
+            d.ellipse([xe - 2, yy - 2, xe + 2, yy + 2], fill=fade((255, 246, 224), 0.9 * a))
+
+    # ---- the off-beat rule: the cell the record ends on, planted here ----
+    if n_st:
+        ph = float(st.get("phase", 0.0))
+        off = max(0.0, 1.0 - abs(ph - 0.5) / 0.14) ** 1.5
+        yt = y1 + 8
+        xx = x0 + 4
+        for g in range(n_st):
+            for _k in range(g + 1):
+                d.line([(xx, yt), (xx, yt + 6)], fill=fade(AMBER, (0.26 + 0.74 * off) * a))
+                xx += 5
+            xx += 8
+        d.line([(xx - 4, yt + 2), (x1, yt + 2)],
+               fill=fade(AMBER, (0.16 + 0.42 * off) * a))
+
+
+
+
+def _dial(img, cx, cy, r, *, outer: float, inner: float, text: str, alpha: float = 1.0,
+          seg: float = 1.0, label: str = "TILL CHORUS", big: bool = False):
+    """Five minutes and two twenty-five, as two rings.
+
+    导演 (04:37):「五分钟的意象应该是对应整个歌曲，可以着重做一下」。The promise is five
+    minutes; the song only grants 2:25 to the chorus. So the widget is TWO rings:
+
+        outer, thin, 300 s   the promise — it never closes, because the song ends first
+        inner, thick, 145 s  what is actually granted — it closes exactly at 4:25
+
+    `outer` / `inner` are 0..1 progress. `seg` (0..1) scrambles the ring into segments
+    that appear out of order — the clock is ASSEMBLED, not faded in.
+    """
+    if alpha <= 0.01:
+        return
+    d = ImageDraw.Draw(img)
+    ring = fade(AMBER, 0.85 * alpha)
+    hot = fade((255, 246, 224), 1.0 * alpha)
+    w = 2 if r > 30 else 1
+    # outer: the promise. segments appear in a hashed order while it assembles
+    n = 30
+    for i in range(n):
+        if seg < 1.0 and (i + 1) / n > seg:
+            continue
+        a0 = -90 + 360 * i / n
+        d.arc([cx - r, cy - r, cx + r, cy + r], a0, a0 + 360 / n - 1.2, fill=ring, width=w)
+    # outer progress: a brighter arc that creeps round and never arrives
+    if outer > 0.002:
+        d.arc([cx - r, cy - r, cx + r, cy + r], -90, -90 + 359.9 * min(1.0, outer),
+              fill=fade(AMBER, 0.85 * alpha), width=w + 1)
+    # inner: what was granted
+    r2 = r * 0.72
+    d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=fade(AMBER, 0.16 * alpha))
+    if inner > 0.002:
+        d.arc([cx - r2, cy - r2, cx + r2, cy + r2], -90, -90 + 359.9 * min(1.0, inner),
+              fill=hot, width=max(2, w + 1))
+    if r > 30:
+        for k in range(12):
+            a0 = math.radians(-90 + k * 30)
+            d.line([(cx + math.cos(a0) * (r + 4), cy + math.sin(a0) * (r + 4)),
+                    (cx + math.cos(a0) * (r + 9), cy + math.sin(a0) * (r + 9))],
+                   fill=fade(AMBER, 0.30 * alpha))
+    fs = 40 if big else 13
+    f = font(tk.MONO_B, fs)
+    tw = d.textlength(text, font=f)
+    if big:
+        # the number has to win against a bright ridge behind it
+        d.text((cx - tw / 2, cy - fs * 0.62), text, font=f, fill=fade((2, 3, 8), alpha),
+               stroke_width=3, stroke_fill=fade((2, 3, 8), alpha))
+    d.text((cx - tw / 2, cy - fs * 0.62), text, font=f,
+           fill=fade((255, 246, 224), 0.98 * alpha))
+    if big:
+        # the outer ring is the FIVE MINUTES: without a label it is just a circle
+        f0 = font(tk.MONO, 9)
+        lab0 = "T+05:00"
+        d.text((cx - d.textlength(lab0, font=f0) / 2, cy - r - 16), lab0, font=f0,
+               fill=fade(AMBER, 0.55 * alpha))
+        f2 = font(tk.MONO, 9)
+        tw2 = d.textlength(label, font=f2)
+        d.text((cx - tw2 / 2, cy + r * 0.62), label, font=f2, fill=fade(AMBER, 0.55 * alpha))
+
+def _big_line(img, word, alpha, age=9.9, box=None):
     """B①' demands — 雷霆大字 (plan/05 §3: 942 AD — the strongest moment is typography).
 
     Stamped over the WORLD half, sized to fit it (an overflowing line is not big, it is a
@@ -976,12 +1256,17 @@ def _big_line(img, word, alpha, age=9.9):
     d = ImageDraw.Draw(img)
     x0 = ENT_W + GAP + 8
     x1 = W - 8 - OPS_W - GAP            # the content zone, not under the meters
-    fs = max(36, min(88, int((x1 - x0 - 24) / max(1, len(word)))))
+    if box and box[2] - box[0] > 40:
+        tx0, tx1 = box[0] + 10, box[2] - 10
+    else:
+        tx0 = x0 + 8
+        tx1 = x1 - 8
+    fs = max(36, min(BIG_CAP, int((tx1 - tx0 - 24) / max(1, len(word)))))
     punch = 0.0 if age >= 0.22 else (1.0 - age / 0.22)
     fs = int(fs * (1.0 + 0.07 * punch))
     f = font(tk.CJK, fs)
     tw = d.textlength(word, font=f)
-    bx = x0 + ((x1 - x0) - tw) / 2
+    bx = tx0 + ((tx1 - tx0) - tw) / 2
     by = H * 0.42 - fs * 0.5
     # the dark rim first, then the glyph — so the type reads against any ridge behind it
     d.text((bx, by), word, font=f, fill=fade((2, 3, 8), alpha),
@@ -993,5 +1278,5 @@ def _big_line(img, word, alpha, age=9.9):
     for i in range(0, span, 6):
         u = (i + 3) / max(1, span)
         fall = min(1.0, 2.4 * min(u, 1.0 - u) + 0.10)
-        d.rectangle([x0 + i, yb, x0 + i + 6, yb + 2],
-                    fill=fade(AMBER, 0.52 * alpha * fall))
+        d.rectangle([x0 + i, yb, x0 + i + 6, yb + 3],
+                    fill=fade(AMBER, 0.62 * alpha * fall))
