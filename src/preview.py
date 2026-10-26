@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Render review stills for the Lanhuacao MV concept (1280x720, 24 fps)."""
 from __future__ import annotations
+import json
 import math
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from PIL import Image, ImageChops, ImageDraw
 import clock
 import crt
 import drive
+import intro_fill
 import tk
 from tk import (AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix, post)
 
@@ -25,6 +27,12 @@ if _RMS_PATH.exists():
     SERIES = _np.load(_RMS_PATH).astype(float).tolist()
 else:
     SERIES = []
+
+_ONSETS_PATH = Path(__file__).resolve().parents[1] / "data" / "intro_onsets.json"
+if _ONSETS_PATH.exists():
+    INTRO_ONSETS = json.loads(_ONSETS_PATH.read_text(encoding="utf-8"))["onsets"]
+else:
+    INTRO_ONSETS = [6.0 + i * 0.7 for i in range(85)]
 
 _BANDS_PATH = Path(__file__).resolve().parents[1] / "data" / "audio" / "bands24.npy"
 if _BANDS_PATH.exists():
@@ -728,7 +736,92 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
     """
     import scene
     L = LEFT
-    slots = [
+    slots = _intro_slot_table(t, frame_no)
+
+    # the transport itself is already up (it came up during 0-6.4 s) and stays
+    img = _intro_transport(img, t, frame_no)
+
+    # The fill: from 5.2 s the frame is covered cell by cell on the measured onsets, so the
+    # picture grows out of the machine rather than cutting or fading to it. Whatever has
+    # already been filled shows the finished interface; the rest is still dark glass.
+    booted, _ = scene.intro_boot_state(t)
+    for i, (rect, title, rows) in enumerate(slots):
+        if i >= booted:
+            break
+        u = min(1.0, (t - scene.INTRO_BOOTS[i][0]) / 0.55)
+        # after 64 s everything drops. The modules go IDLE but stay powered — that is what
+        # makes "the machine is waiting for a voice" legible instead of "the render failed".
+        dim = 1.0 if t < 64.0 else max(0.35, 1.0 - (t - 64.0) / 4.0)
+        state = "LIVE" if (u >= 1.0 and t < 64.0) else ("IDLE" if t >= 64.0 else "LOCK")
+        img = crt.boot_panel(img, rect, t, u, title, rows(), dim=dim, seed=i, state=state)
+
+    # ---- the cell fill: the frame is covered on the music, not faded in -------------------
+    # From FILL_START the whole interface (all of the machine's modules, its read-outs, and the
+    # world's first horizon) is what the fill is spreading. Each cell arrives on a measured
+    # onset, so by 67.85 the frame is fully lit and the handover to A① is simply "the song
+    # starts" rather than a dissolve.
+    if t >= FILL_START:
+        full = _intro_full_frame(t, frame_no)
+        img = intro_fill.fill(full, t, INTRO_ONSETS, mode="radial", started=FILL_START)
+    return img
+
+
+FILL_START = 5.2
+
+
+def _intro_full_frame(t: float, frame_no: int) -> Image.Image:
+    """Everything that exists before 1:08, drawn at full strength.
+
+    This is the destination the cell fill reveals: the transport, all seven modules live, the
+    read-outs, the log — and the first horizon of the world, which arrives with them so the
+    68 s handover has something to hand over to.
+    """
+    import scene
+    img = Image.new("RGB", (tk.W, tk.H), (2, 3, 8))
+    img = _intro_transport(img, t, frame_no)
+    L = LEFT
+    slots = _intro_slot_table(t, frame_no)
+    for i, (rect, title, rows) in enumerate(slots):
+        img = crt.boot_panel(img, rect, t, 1.0, title, rows(), dim=1.0, seed=i, state="LIVE")
+
+    # ---- the world, as much of it as exists before 1:08 ----
+    # The fill is supposed to uncover "all content before 1:08", and most of the frame IS the
+    # world: dark valley, three ridges, stars, the light column growing with the vocal envelope.
+    # Drawing only a horizon line left two thirds of the finished frame empty, so the fill looked
+    # like it was spreading into nothing.
+    R = RIGHT
+    wimg = Image.new("RGB", (tk.W, tk.H), (2, 3, 8))
+    v_sig = drive.vocals_smooth(t)
+    b_sig = drive.bass_smooth(t)
+    o_sig = drive.other_smooth(t)
+    tk.sky(wimg, R, 0.0, 0.0)
+    tk.terrain(wimg, R, mood=0.0, seed=11, t=t, cold=0.0,
+               amp_scale=0.55 * (0.74 + 0.55 * b_sig))
+    tk.stars(wimg, R, t, 11, 0.95)
+    tk.rain(wimg, R, t, 0.10 * (0.25 + 1.15 * o_sig), 11)
+    img.paste(wimg.crop((R[0], R[1], R[2], R[3])), (R[0], R[1]))
+
+    # the column: the intro's four instrumental layers are its height, so it grows 8 -> 48 s
+    entity = 0.62 if t >= 8.0 else 0.0     # the column arrives with the violin (8 s)
+    if entity > 0:
+        img = tk.entity(img, R[0] + (R[2] - R[0]) * 0.40, R[1] + (R[3] - R[1]) * 0.40, t,
+                        entity * (0.18 + 0.82 * v_sig))
+    if t >= 36.0:      # the pot appears with the piano, as in the per-module version
+        hh = 235 * min(1.0, (t - 36.0) / 12.0)
+        tk.orchid(img, R[0] + (R[2] - R[0]) * 0.845, R[3] - 16, hh, t, alpha=1.0, blooms=2)
+
+    d = ImageDraw.Draw(img)
+    pane_border(d, R, BLUE_MID, 0.28)
+    tk.ticks(img, R)
+    tk.telemetry(img, R, t, 11, 0.7)
+    tk.hud(d, R, t, "WORLD // VALLEY", BLUE_HI, 0.38, stamp="261026 0353")
+    return img
+
+
+def _intro_slot_table(t: float, frame_no: int):
+    import scene
+    L = LEFT
+    return [
         ((L[0] + 8, 194, L[2] - 8, 276), "LEVEL METER",
          lambda: [("LEVEL", f"{scene.level_at(t):4.2f}", None),
                   ("CH 1-6", "[ -- ]", RED),
@@ -746,25 +839,11 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
         ((L[0] + 8, 478, L[2] - 8, 512), "SCORE / CHANNELS",
          lambda: [("SCORE", f"{scene.score_at(t):4.1f}", None)]),
         ((L[0] + 8, 520, L[2] - 8, 552), "SYSLOG",
-         lambda: [("LOG", f"{frame_no:05d}f", None)]),
+         lambda: [("LOG", f"{frame_no:05f}", None)]),
         ((L[0] + 8, 560, L[2] - 8, 640), "SLEEVE",
          lambda: [("ALBUM", "UFO-9405", None),
                   ("YEAR", "1994", None)]),
     ]
-    # the transport itself is already up (it came up during 0-6.4 s) and stays
-    img = _intro_transport(img, t, frame_no)
-
-    booted, _ = scene.intro_boot_state(t)
-    for i, (rect, title, rows) in enumerate(slots):
-        if i >= booted:
-            break
-        u = min(1.0, (t - scene.INTRO_BOOTS[i][0]) / 0.55)
-        # after 64 s everything drops. The modules go IDLE but stay powered — that is what
-        # makes "the machine is waiting for a voice" legible instead of "the render failed".
-        dim = 1.0 if t < 64.0 else max(0.35, 1.0 - (t - 64.0) / 4.0)
-        state = "LIVE" if (u >= 1.0 and t < 64.0) else ("IDLE" if t >= 64.0 else "LOCK")
-        img = crt.boot_panel(img, rect, t, u, title, rows(), dim=dim, seed=i, state=state)
-    return img
 
 
 def _draw_disc(dl, cx, cy, r, revs, blur, dim=1.0, ax=None):
@@ -850,18 +929,12 @@ def intro_scene(t: float):
         hh = max(2.0, (box[3] - box[1]) * 0.5 * u)
         aperture = (X0, (box[1] + box[3]) / 2 - hh, X1, (box[1] + box[3]) / 2 + hh)
         ln = None
-    elif t < 5.20:
+    else:
+        # The picture holds exactly at the machine column. It is NOT widened by a fade: the
+        # frame fills later, cell by cell, on the music (see intro_fill below).
         aperture = (X0, Y0, X1, Y1)
         ln = None
-    else:                                                 # widen to the whole frame
-        u = tk.ease_io((t - 5.20) / 1.20)
-        aperture = (
-            X0 - (X0 + 8) * u,
-            Y0 - (Y0 + 8) * u,
-            X1 + (tk.W + 8 - X1) * u,
-            Y1 + (tk.H + 8 - Y1) * u,
-        )
-        ln = None
+
 
     lay = Image.new("RGB", (tk.W, tk.H), GLASS)
     dl = ImageDraw.Draw(lay)
