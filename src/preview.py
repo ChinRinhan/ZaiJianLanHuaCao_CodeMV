@@ -519,7 +519,14 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
                 dl.line([(x0 + 24, sy + k), (x1 - 24, sy + k)], fill=mix((0, 0, 0), (255, 226, 190), aa))
             img = ImageChops.add(img, lay)
             d = ImageDraw.Draw(img)
-        if True:
+        if intro_mode:
+            # The machine is still coming up: only the modules that have booted exist.
+            # The finished interface (LCD, cue, score, playlist, progress bar) is not there yet
+            # — that is the whole point of the intro, and it is what makes the 68 s handover
+            # read as "the song starts and the interface is ready".
+            img = intro_modules(img, t, int(round(t * 24)))
+            d = ImageDraw.Draw(img)
+        else:
             karaoke(img, d, t, boot=boot, lyric=lyric, cue=cue, score=score,
                     level=level, progress=progress, playing=playing, rewrite=rewrite,
                     collapsed=collapsed, game_set=game_set, rewrite05=rewrite05, pen=pen,
@@ -654,6 +661,62 @@ def _band_ctr(t: float) -> float:
     return float((cur * _np.arange(len(cur))).sum() / max(1e-9, cur.sum()))
 
 
+def _intro_transport(img: Image.Image, t: float, frame_no: int) -> Image.Image:
+    """The transport panel, in the rect it keeps for the whole film.
+
+    It powers up during 0-6.4 s inside intro_scene; from 6.4 s the intro is about the modules
+    BELOW it, so this draws it in its resting state with live read-outs.
+    """
+    import scene
+    L = LEFT
+    box = (L[0] + 8, L[1] + 34, L[2] - 8, L[1] + 172)
+    d = ImageDraw.Draw(img)
+    d.rectangle(box, outline=fade(AMBER, 0.55))
+    d.line([(box[0] + 6, box[1] + 11), (box[2] - 6, box[1] + 11)], fill=fade(AMBER, 0.20))
+    tk.text(d, (box[0] + 8, box[1] + 1), "CD TRANSPORT", font(tk.MONO, 8), AMBER, 0.72)
+    idle = t >= 64.0
+    tk.text(d, (box[2] - 74, box[1] + 1), "IDLE" if idle else "PLAY", font(tk.MONO, 8),
+            AMBER if idle else GREEN, 0.92)
+
+    r = min((box[3] - box[1]) * 0.36, (box[2] - box[0]) * 0.15)
+    dcx, dcy = box[0] + r + 14, box[1] + (box[3] - box[1]) * 0.60
+    # spindle speed follows the intro's actual energy: it slows when the music drops at 64 s
+    rpm = 0.0 if idle else min(8.3, 2.0 + 6.3 * min(1.0, scene.level_at(t) / 0.85))
+    dim = 1.0 if not idle else max(0.72, 1.0 - (t - 64.0) / 14.0)
+    d.ellipse([dcx - r, dcy - r, dcx + r, dcy + r], fill=(52, 44, 30),
+              outline=fade(AMBER, 0.55 * dim))
+    for k in range(1, 8):
+        rr = r * k / 8
+        d.ellipse([dcx - rr, dcy - rr, dcx + rr, dcy + rr], outline=fade(AMBER, 0.13 * dim))
+    for k in range(-int(r), int(r)):
+        if abs(k) < r * 0.97:
+            w_ = (r * r - k * k) ** 0.5
+            a_ = 0.42 * (1 - abs(k) / r) ** 1.4
+            col = mix((255, 236, 190), (150, 210, 255), (k + r) / (2 * r))
+            d.line([(dcx - w_, dcy + k, dcx + w_, dcy + k)][0:0] or
+                   [(dcx - w_, dcy + k), (dcx + w_, dcy + k)], fill=fade(col, a_ * dim))
+    if rpm > 0:
+        revs = 0.5 * 8.3 * 0.9 + 8.3 * max(0.0, t - 3.60)
+        a0 = (revs * 360.0) % 360.0
+        blur = min(1.0, rpm / 8.3)
+        d.arc([dcx - r + 1, dcy - r + 1, dcx + r - 1, dcy + r - 1],
+              start=a0, end=a0 + 70 + 190 * blur,
+              fill=fade((255, 248, 225), 0.75 * (1 - 0.5 * blur) * dim), width=2)
+    d.ellipse([dcx - r * 0.30, dcy - r * 0.30, dcx + r * 0.30, dcy + r * 0.30],
+              fill=(30, 24, 14), outline=fade(AMBER, 0.4 * dim))
+    d.ellipse([dcx - 3, dcy - 3, dcx + 3, dcy + 3], fill=fade(AMBER, 0.6 * dim))
+
+    tx = box[0] + r * 2 + 26
+    for (yy, s_, fs, fpath, aa) in (
+            (box[1] + 17, "TRACK 013", 9, tk.MONO, 0.50),
+            (box[1] + 34, "再见 兰花草", 22, tk.CJK, 0.98),
+            (box[1] + 66, "张雨生", 13, tk.CJK, 0.74),
+            (box[1] + 88, "卡拉OK·台北·我", 11, tk.CJK, 0.55),
+            (box[1] + 106, "1994 飞碟唱片", 9, tk.CJK, 0.42)):
+        tk.text(d, (tx, yy), s_, font(fpath, fs), AMBER, aa * dim)
+    return img
+
+
 def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
     """The intro's real content: modules of the machine powering on, one per musical lift.
 
@@ -688,6 +751,9 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
          lambda: [("ALBUM", "UFO-9405", None),
                   ("YEAR", "1994", None)]),
     ]
+    # the transport itself is already up (it came up during 0-6.4 s) and stays
+    img = _intro_transport(img, t, frame_no)
+
     booted, _ = scene.intro_boot_state(t)
     for i, (rect, title, rows) in enumerate(slots):
         if i >= booted:
