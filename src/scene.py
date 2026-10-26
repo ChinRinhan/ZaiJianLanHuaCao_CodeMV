@@ -339,6 +339,21 @@ def _normal(t: float):
     if cam:
         w_terrain = min(w_terrain, 0.92)
 
+    # ---- A④ is subtraction from its first frame, not only once the rewrite opens ----
+    # plan/03 §4: "把 A④ 拍成减法——花田退回一株、网格退回基准、颜色褪成单色、评分归零、
+    # 播放列表缩成一行". The retreat must be a curve across 380.99-386.5, not a switch that
+    # only starts at 383.0 when REWRITE 05 opens.
+    a4_w = None
+    if 358.92 <= t < 380.99:
+        u4 = (t - 358.92) / (380.99 - 358.92)
+        a4_w = {
+            "w_terrain": 1.0 - 0.55 * u4,
+            "w_beam": 1.0 - 0.90 * u4,
+            "w_hud": 1.0 - 0.45 * u4,
+        }
+    if a4_w:
+        w_terrain = a4_w["w_terrain"]
+
     return preview.compose(
         t,
         boot=1.0 if t >= 8.0 else max(0.12, t / 8.0),
@@ -359,6 +374,8 @@ def _normal(t: float):
         pen_times=(cur.get("times") if (cur and not rw and lyric[0]) else None),
         big_b1=(b1_big, b1_alpha) if b1_big else None,
         w_terrain=w_terrain,
+        w_beam=a4_w["w_beam"] if a4_w else None,
+        w_hud=a4_w["w_hud"] if a4_w else 1.0,
         camera=cam,
     )
 
