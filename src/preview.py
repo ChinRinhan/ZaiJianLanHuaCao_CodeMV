@@ -386,6 +386,48 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
             font(tk.MONO, 12), AMBER, 0.5 * a)
 
 
+def glyph_flash(t: float) -> float:
+    """Brightness spike each time a character lands on the lyric band.
+
+    This is the tightest left-right link the film can have: the machine writes a glyph, and the
+    column in the world flares on that frame. It makes the machine the cause of the world's
+    light rather than a separate read-out that happens to share a song.
+
+    Derived from the same per-character table the pen uses, so it cannot drift: one source.
+    """
+    import scene as _sc
+    cur, _ = _sc.line_at(t)
+    if not cur:
+        return 0.0
+    ts = cur.get("times")
+    if not ts:
+        return 0.0
+    for x in ts:
+        age = t - x
+        if 0.0 <= age < 0.26:
+            return 1.0 - age / 0.26
+    return 0.0
+
+
+def rewrite_echo(t: float) -> float:
+    """0..1 answer of the world to a rewrite happening on the machine.
+
+    plan/16 §2.3 made the rewrite the film's thesis, but a rewrite only ever happened on the
+    LEFT pane: the machine strikes a word out and the world did not react at all. Here the world
+    answers — the ridge line carries a bright seam for 0.7 s after each displacement, as if the
+    mountain had been scored by the same pen.
+
+    Only in A①, only for the four displacements: the world does not know about 1994 or about
+    being rewritten (plan/04 §7), so this must stay an optical echo, not a gesture.
+    """
+    import scene as _sc
+    for r in _sc.REWRITES:
+        age = t - r["at"]
+        if 0.0 <= age < 0.70:
+            return 1.0 - age / 0.70
+    return 0.0
+
+
 def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             mood=0.0, sun=0.0, flower=0.0, entity=0.0, rain=0.0, spiral=0.0,
             seed=3, glow=0.5, label="WORLD // VALLEY", progress=None, playing=True,
@@ -426,6 +468,15 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         tk.terrain(wimg, RIGHT, mood=mood, seed=seed, t=t, cold=cold,
                    amp_scale=amp_scale * (0.74 + 0.55 * b_sig) * _cam_scale,
                    x_off=_cam_off, floor=_cam_floor)
+        # the world's answer to a rewrite: a seam of ink along the ridge, fading over 0.7 s
+        _echo = rewrite_echo(t)
+        if _echo > 0.01:
+            Rd = ImageDraw.Draw(wimg)
+            ey = RIGHT[1] + (RIGHT[3] - RIGHT[1]) * 0.52
+            for k in range(-3, 4):
+                aa = (1 - abs(k) / 4) * 0.16 * _echo
+                Rd.line([(RIGHT[0] + 18, ey + k), (RIGHT[2] - 18, ey + k)],
+                        fill=mix((0, 0, 0), (255, 236, 200), aa))
         if sun > 0:
             wimg = tk.sun(wimg, x0 + (x1 - x0) * 0.70, y0 + (y1 - y0) * 0.44, 30, warm=mood)
         tk.stars(wimg, RIGHT, t, seed, 1.0 - 0.55 * mood)
@@ -442,8 +493,10 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             if entity > 0.01:
                 # the column's height and brightness are the vocal envelope, so it is dark
                 # through the whole 124-second interlude and full while he sings
+                # + the glyph flash: typing on the left makes the column flare on the right
+                _gf = glyph_flash(t)
                 img = tk.entity(img, x0 + (x1 - x0) * 0.40, y0 + (y1 - y0) * 0.40, t,
-                                entity * w_beam * (0.18 + 0.82 * v_sig))
+                                entity * w_beam * (0.18 + 0.82 * v_sig + 0.55 * _gf))
             img = tk.fog(img, RIGHT, y0 + (y1 - y0) * 0.575,
                          mix(BLUE_HI, (255, 200, 150), mood * 0.8),
                          (0.05 + 0.06 * v_sig) * w_beam)
@@ -481,6 +534,21 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         d = ImageDraw.Draw(img)
         pane_border(d, RIGHT, BLUE_MID, 0.28 * world_w)
         tk.hud(d, RIGHT, t, label, BLUE_HI, 0.40 * world_w, stamp="261026 0353")
+
+        # ---- the shared beat: one drum hit, both panes -----------------------------------
+        # This is the cheapest possible link and the one that was missing: `drum_hit` returns a
+        # decaying value for a measured attack. It brightens the mountain's rim on the right and
+        # the transport's frame on the left in the SAME frame, so the two panes are visibly
+        # driven by one clock instead of each running its own ramp (plan/14 §1.3).
+        if d_hit > 0.02 and world_w > 0.01:
+            R_ = RIGHT
+            lay_b = Image.new("RGB", (tk.W, tk.H), (0, 0, 0))
+            db = ImageDraw.Draw(lay_b)
+            rim_y = R_[1] + (R_[3] - R_[1]) * 0.70
+            db.line([(R_[0] + 10, rim_y), (R_[2] - 10, rim_y)],
+                    fill=mix((0, 0, 0), BLUE_HI, 0.10 * d_hit))
+            img = ImageChops.add(img, lay_b)
+            d = ImageDraw.Draw(img)
 
         # layer 3: the machine finally starts measuring what it was watching
         if w_hud * world_w > 0.02:

@@ -17,6 +17,7 @@ from PIL import Image
 import preview
 import tk
 import clock
+import drive
 
 ROOT = Path(__file__).resolve().parents[1]
 TL = json.loads((ROOT / "data" / "timeline.json").read_text(encoding="utf-8"))
@@ -284,22 +285,56 @@ def rewrite_at(t: float):
     return None
 
 
+# ---- SCORE is derived from the world, not typed in -------------------------------
+# It used to be a hand-written piecewise line: 61->78 over A①, 99.4 flat over B①, 0 over the
+# interlude... Which meant the left pane's most prominent number had no relation to anything
+# the right pane was showing. The two panes were correlated only because both followed the
+# song's arch (r = +0.77 over the whole song, but ~0 frame to frame) — they were two separate
+# drawings of the same song, not one instrument measuring it.
+#
+# Now SCORE is a function of the same four stem envelopes that drive the mountain, the column,
+# the rain and the pulse. When the score moves, the world moved; when the world moves, the
+# score follows. The ceiling stays 99.4 (plan/04 §3: the machine can never award 100).
+SCORE_CEIL = 99.4
+SCORE_FLOOR = 0.0
+
+
 def score_at(t: float) -> float:
-    if t < 67.85:
+    """How well the machine thinks this performance is going — measured, not authored.
+
+    Weighted from the four stems: the voice carries it (a karaoke deck scores the singing),
+    the band pushes it up, and the interlude collapses it because there is nobody to score.
+    Silenced during the intro and after the cut, exactly as before.
+    """
+    if t < 67.85 or t >= END_CUT:
         return 0.0
-    if t < 103.84:
-        return 61.0 + 17.0 * (t - 67.85) / 36.0
-    if t < 124.0:
-        return 99.4
-    if t < 245.79:
-        return 0.0
-    if t < 266.31:
-        return 0.0
-    if t < 312.45:
-        return 70.0 + 20.0 * (t - 266.31) / 46.14
-    if t < 358.92:
-        return 99.1
-    return max(0.0, 99.1 * (1 - (t - 358.92) / 22.0))
+    if 124.0 <= t < 245.79:
+        # the interlude: no vocal, so there is nothing to rate. A small residual shows the
+        # machine is still listening (it never reaches zero until the song ends).
+        return round(max(0.4, 6.0 * drive.drums(t)), 1)
+
+    # A score that jumps 70 points inside one line is not a score, it is a volume meter.
+    # Average over a 2.5 s window so the number moves on the phrase, not on the syllable —
+    # still derived from the audio, still frame-pure.
+    def _avg(fn, win=2.5, steps=5):
+        return sum(fn(t + (i / (steps - 1) - 0.5) * win) for i in range(steps)) / steps
+
+    v = _avg(drive.vocals_smooth)       # the thing being scored
+    b = _avg(drive.bass_smooth)         # the band
+    d = _avg(lambda x: drive.drums(x), 1.2)
+    o = _avg(drive.other_smooth)
+
+    # The voice dominates; the band adds body; `other` (guitar/violin) is what makes the
+    # number wobble between lines instead of sitting still.
+    raw = 0.62 * v + 0.20 * b + 0.10 * d + 0.08 * o
+
+    # A④ is subtraction (plan/03 §4): the score must visibly come down as the arrangement
+    # empties, even though the voice is still full.
+    if t >= 358.92:
+        u = min(1.0, (t - 358.92) / 22.07)
+        raw *= (1.0 - 0.92 * u)
+
+    return round(min(SCORE_CEIL, SCORE_FLOOR + (SCORE_CEIL - SCORE_FLOOR) * raw), 1)
 
 
 def level_at(t: float) -> float:
