@@ -29,6 +29,8 @@ import tk
 
 W, H = tk.W, tk.H
 CELL = 16                      # px; 80 x 80 cells over the frame
+# the transport panel: the fill's origin, and the one block that never goes dark
+SEED_RECT = (8, 42, 392, 180)
 COLS, ROWS = W // CELL, H // CELL
 
 
@@ -119,6 +121,12 @@ def fill(finished: Image.Image, t: float, times: list[float], mode: str = "radia
     # version showed the whole frame from the first filled cell.
     out = Image.new("RGB", finished.size, (2, 3, 8))
     out.paste(finished, (0, 0), mask)
+    # The machine is always there. The fill is what the machine's picture spreads into, so the
+    # machine itself must never be switched off while the front is still travelling — otherwise
+    # the first second of the fill is a black screen with one bright corner.
+    keep = Image.new("L", finished.size, 0)
+    ImageDraw.Draw(keep).rectangle(SEED_RECT, fill=255)
+    out.paste(finished, (0, 0), keep)
     return out
 
 
