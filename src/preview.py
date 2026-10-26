@@ -237,13 +237,20 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
     # lyric LCD
     d.rectangle([x0 + 8, y0 + 186, x1 - 8, y0 + 268], fill=(11, 9, 5),
                 outline=fade(AMBER, 0.18 * a * breath))
-    if rewrite05:
-        # the machine stops showing the old song and opens a fifth rewrite. nothing gets typed.
+    if rewrite05 and not lyric[0]:
+        # The lyric band is free, so the fifth rewrite gets the whole block: header, prompt,
+        # rule, and a cursor blinking on an empty line. Nothing ever gets typed.
         tk.text(d, (x0 + 14, y0 + 190), "REWRITE 05", font(tk.MONO, 10), RED, 0.85)
         tk.text(d, (x0 + 16, y0 + 220), ">", font(tk.MONO, 14), AMBER, 0.45)
         d.line([(x0 + 16, y0 + 250), (x1 - 24, y0 + 250)], fill=fade(AMBER, 0.2))
         if (t * 1.7) % 1.0 < 0.55:
             d.rectangle([x0 + 34, y0 + 216, x0 + 48, y0 + 244], fill=fade(BLUE_HI, 0.88))
+    elif rewrite05:
+        # Someone is still singing, so the band keeps doing its only job — showing the line —
+        # and the rewrite gets its own small slot underneath. plan/03 §2.4: "LYRIC 区永远
+        # 显示当前唱句，不承担改写；改写单独给一块". Suppressing the vocal line for 3.5 s
+        # to show an empty rewrite was the bug this fixes.
+        tk.text(d, (x0 + 14, y0 + 190), "LYRIC", font(tk.MONO, 10), AMBER, 0.4 * a)
     else:
         tk.text(d, (x0 + 14, y0 + 190), "LYRIC", font(tk.MONO, 10), AMBER, 0.4 * a)
     if rewrite:
@@ -263,7 +270,10 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
             d.line([(x0 + 16, y0 + 206), (x0 + 16 + len(old) * 12, y0 + 206)], fill=fade(RED, 0.5))
             tk.text(d, (x0 + 16, y0 + 218), new, font(tk.KAI, 21), (232, 226, 206), 0.96)
             d.rectangle([x0 + 16, y0 + 244, x0 + 16 + len(new) * 19, y0 + 246], outline=fade(RED, 0.5))
-    if rewrite or rewrite05:
+    # `rewrite05` used to swallow the band unconditionally — but when someone is still
+    # singing (up to 386.8 s), suppressing the line to show an empty rewrite is a fact
+    # error. The band keeps its one job; the rewrite is drawn in its own slot below.
+    if (rewrite or rewrite05) and not lyric[0]:
         pass
     elif boot > 0.4 and lyric[0]:
         if pen is not None or pen_times:
@@ -275,8 +285,20 @@ def karaoke(img, d, t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0
             tk.text(d, (x0 + 16, y0 + 190), lyric[0], font(tk.CJK, 21), BLUE_HI, 0.95 * a)
         if lyric[1]:
             tk.text(d, (x0 + 18, y0 + 234), lyric[1], font(tk.CJK, 11), AMBER, 0.34 * a)
-    else:
+    elif not rewrite05:
         tk.text(d, (x0 + 16, y0 + 200), "· · ·", font(tk.CJK, 21), AMBER, 0.22 * a)
+
+    # the fifth rewrite: full block when the band is free, a small slot while someone sings.
+    # The slot lives INSIDE the LCD band (y+246..y+264), under the lyric line, so it never
+    # covers >> READY (y+278) or the SCORE row (y+302).
+    if rewrite05 and lyric[0]:
+        bx0, by0, bx1 = x0 + 12, y0 + 244, x1 - 12
+        d.rectangle([bx0, by0, bx1, by0 + 20], fill=(9, 7, 4), outline=fade(RED, 0.32))
+        tk.text(d, (bx0 + 5, by0 + 3), "REWRITE 05", font(tk.MONO, 7), RED, 0.85)
+        tk.text(d, (bx0 + 58, by0 + 4), ">", font(tk.MONO, 8), AMBER, 0.55)
+        d.line([(bx0 + 66, by0 + 16), (bx1 - 6, by0 + 16)], fill=fade(AMBER, 0.18))
+        if (t * 1.7) % 1.0 < 0.55:
+            d.rectangle([bx0 + 70, by0 + 5, bx0 + 77, by0 + 17], fill=fade(BLUE_HI, 0.80))
 
     # cue
     if cue:

@@ -407,25 +407,28 @@ def frame(t: float):
     return _normal(t)
 
 
-REWRITE05_AT = 383.0
+REWRITE05_AT = 386.1
 
 
 def _ending_run(t: float):
-    """383.0-386.5: everything retreats, then the machine opens a fifth rewrite.
+    """386.1-386.5: the last line finishes, the machine opens a fifth rewrite.
 
     The A④ contract (plan/03 §4, plan/05 §7): no additions, only subtraction. The flower
-    field goes back to one pot, the list is one line, the score is zero, and from 383.0 the
-    lyric band yields to `REWRITE 05` with nothing under it.
+    field is back to one pot, the list is one line, the score is zero.
 
-    The three layer weights are driven to zero here — that is what "减法" means mechanically:
-    the mountain thins out, the beam goes, and the instrument plate (the machine's own
-    measuring) is the last thing to leave, because the machine is still there and the world is not.
+    NOTE ON TIMING. This used to start at 383.0, which suppressed the lyric band while the
+    voice was still singing (the vocal stem does not go quiet until 386.8 s, and the last
+    line "梵音在弦外醉翁意韵妙" is sung across 385.94-386.78). Showing an empty REWRITE 05 over
+    a line that is audibly being sung is a fact error, not a style choice. So REWRITE 05 now
+    opens at 386.1 — after the last glyph — and the lyric band keeps its only job until then.
     """
     u = min(1.0, max(0.0, (t - 380.99) / (386.5 - 380.99)))   # 0 at A④ start, 1 at GAME SET
+    cur, nxt = line_at(t)
+    still_singing = cur is not None and _line_end(cur) > t
     return preview.compose(
         t,
         boot=0.55,
-        lyric=("", ""),
+        lyric=(cur["text"], "") if still_singing else ("", ""),
         cue=None,
         score=0.0,
         level=level_at(t),
@@ -436,6 +439,7 @@ def _ending_run(t: float):
         amp_scale=amp_at(t, 0.55) * (1.0 - 0.55 * u),
         flower_x=0.50, flower_count=1,
         collapsed=True, rewrite05=True,
+        pen_times=(cur.get("times") if still_singing else None),
         w_terrain=1.0 - 0.82 * u,          # the mountain thins to a horizon line
         w_beam=1.0 - u,                    # no more light column
         w_hud=1.0 - 0.35 * u,              # the machine keeps measuring longest
