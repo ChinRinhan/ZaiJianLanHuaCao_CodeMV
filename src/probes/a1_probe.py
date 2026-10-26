@@ -2,13 +2,17 @@
 """A① probe v2: typed lyrics with a nib caret + a potted 国兰. No handwriting, no ruled paper."""
 from __future__ import annotations
 
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
+
 from pathlib import Path
 
 import preview
 import scene
 import tk
 
-OUT = Path(__file__).resolve().parents[1] / "out" / "a1"
+OUT = Path(__file__).resolve().parents[2] / "out" / "a1"
 OUT.mkdir(parents=True, exist_ok=True)
 
 

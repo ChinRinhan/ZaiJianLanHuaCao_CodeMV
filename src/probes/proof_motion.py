@@ -8,6 +8,10 @@ Silent, 24 fps. Encodes with OpenCV so it does not depend on the broken ffmpeg.e
 """
 from __future__ import annotations
 
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
+
 import sys
 from pathlib import Path
 
@@ -17,7 +21,7 @@ import numpy as np
 import preview
 import scene
 
-OUT = Path(__file__).resolve().parents[1] / "out" / "proof"
+OUT = Path(__file__).resolve().parents[2] / "out" / "proof"
 OUT.mkdir(parents=True, exist_ok=True)
 
 T0, T1 = 266.31, 278.31

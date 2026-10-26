@@ -334,6 +334,13 @@ def score_at(t: float) -> float:
         u = min(1.0, (t - 358.92) / 22.07)
         raw *= (1.0 - 0.92 * u)
 
+    # B① is the loudest 18 s of the song (plan/05 §4: 界面过载，评分冲顶 99.4 封顶).
+    # The machine is being blasted; the meter pins at its ceiling and twitches there.
+    # The ceiling stays 99.4 — the machine can never award 100 (plan/04 §3).
+    if 103.84 <= t < 124.0:
+        u = min(1.0, max(0.0, (t - 103.84) / 2.0))
+        raw = raw + (1.0 - raw) * u * (0.88 + 0.12 * drive.drums(t))
+
     return round(min(SCORE_CEIL, SCORE_FLOOR + (SCORE_CEIL - SCORE_FLOOR) * raw), 1)
 
 
@@ -355,6 +362,9 @@ def _b1_word(t: float):
 
     只给四条「给我…」。后面「直到那一天…」「你只要给我五分钟」是释放段，不是索取，
     它们回到 LCD 里，一行一行唱完——大字用四次就够，用七次就成了字幕墙。
+
+    Returns (word, alpha_in, alpha_out, age) — age is how long the phrase has been on
+    screen, so the drawing layer can land it like thunder instead of fading it in.
     """
     for i, l in enumerate(LINES):
         if l["t"] <= t and l["text"].startswith("给我"):
@@ -362,8 +372,8 @@ def _b1_word(t: float):
             if l["t"] <= t < nxt:
                 a_in = min(1.0, (t - l["t"]) / 0.28)
                 a_out = min(1.0, max(0.0, (nxt - t) / 0.26))
-                return l["text"], a_in, a_out
-    return None, 0.0, 0.0
+                return l["text"], a_in, a_out, t - l["t"]
+    return None, 0.0, 0.0, 0.0
 
 
 # ---- UNDO: the one capability an editing program cannot reproduce -----------------
@@ -411,7 +421,7 @@ def _normal(t: float):
     b1_big = None
     b1_alpha = 0.0
     if 103.84 <= t < 124.0:
-        w, a_in, a_out = _b1_word(t)
+        w, a_in, a_out, _age = _b1_word(t)
         if w:
             b1_big = w
             b1_alpha = a_in * a_out

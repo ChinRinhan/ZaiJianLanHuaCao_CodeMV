@@ -399,11 +399,13 @@ def hud(d: ImageDraw.ImageDraw, rect, t: float, label: str, color, alpha=0.42, s
 def grass(img: Image.Image, rect, t: float, amount: float = 1.0, seed: int = 5, color=(90, 140, 110)):
     x0, y0, x1, y1 = rect
     d = ImageDraw.Draw(img)
+    # alpha follows `amount` too, not just the count: half-translucent terrain must not
+    # leave a bright fence of blades standing on its own (plan/12 §3.2).
     for i in range(int(90 * amount)):
         x = x0 + _hash(i, 41, seed) * (x1 - x0)
         h = 8 + _hash(i, 42, seed) * 34
         sway = math.sin(t * 1.2 + i * 0.7) * 3
-        c = mix(BG, color, 0.10 + 0.16 * _hash(i, 43, seed))
+        c = mix(BG, color, (0.10 + 0.16 * _hash(i, 43, seed)) * min(1.0, 0.25 + 0.75 * amount))
         d.line([(x, y1 - 2), (x + sway, y1 - 2 - h)], fill=c, width=1)
 
 
@@ -446,11 +448,18 @@ def flower(img: Image.Image, x: float, base_y: float, height: float, t: float,
 
 
 def ridge_text(img: Image.Image, rect, text: str, *, seed: int = 3, warm: float = 0.0,
-               row: int = 2, size: int = 17, alpha: float = 0.9):
-    """Write a line of text so that each glyph sits on the ridge line of layer `row`."""
+               row: int = 2, size: int = 17, alpha: float = 0.9,
+               t: float = 0.0, x_off: float = 0.0, amp_scale: float = 1.0,
+               floor: float = 0.70):
+    """Write a line of text so that each glyph sits on the ridge line of layer `row`.
+
+    The geometry mirrors `terrain()` exactly (same fbm clock, x_off, amp_scale, floor
+    shift) so the glyphs ride the ridge that is actually drawn — not a stale copy of it.
+    """
     x0, y0, x1, y1 = rect
     h = y1 - y0
-    bases = [y0 + h * 0.34, y0 + h * 0.52, y0 + h * 0.70]
+    f_shift = (floor - 0.70) * h
+    bases = [y0 + h * 0.34 + f_shift, y0 + h * 0.52 + f_shift, y0 + h * 0.70 + f_shift]
     amps = [h * 0.150, h * 0.185, h * 0.210]
     scales = [0.0034, 0.0050, 0.0072]
     sds = [0, 37, 71]
@@ -463,9 +472,11 @@ def ridge_text(img: Image.Image, rect, text: str, *, seed: int = 3, warm: float 
     raw = []
     for i in range(n):
         x = x_start + span * (i + 0.5) / max(1, n)
-        v = fbm((x - x0) * scale, 0.0, seed + sd, 4)
-        v2 = noise2((x - x0) * scale * 3.7, 0.0, seed + sd + 9)
-        raw.append(base + amp * ((v - 0.5) * 2 + (v2 - 0.5) * 0.55))
+        v = fbm((x - x0 - x_off) * scale, t * 0.055, seed + sd, 4)
+        v2 = noise2((x - x0 - x_off) * scale * 3.7, t * 0.140, seed + sd + 9)
+        v = (v - 0.5) * 2 + (v2 - 0.5) * 0.55
+        v = math.copysign(abs(v) ** 0.8, v)
+        raw.append(base + amp * amp_scale * v)
     ys = []
     for i in range(n):
         w = [raw[j] for j in range(max(0, i - 2), min(n, i + 3))]
@@ -660,8 +671,10 @@ def orchid(img: Image.Image, cx: float, base_y: float, h: float, t: float = 0.0,
     petal_c = mix(BG, (255, 246, 228), 0.96 * alpha)
     lip_c = mix(BG, (232, 198, 146), 0.92 * alpha)
 
-    for k in range(9):
-        u = (k + 0.5) / 9.0
+    # 小尺寸减叶（plan/12 §3.3）：108–160 px 时 9 片挤成一丛草，<150 px 用 5 片
+    n_leaves = 5 if h < 150 else 9
+    for k in range(n_leaves):
+        u = (k + 0.5) / n_leaves
         spread = (u - 0.5) * 2.0
         droop = max(0.0, abs(spread) - 0.42) / 0.58
         x0 = cx + spread * pot_w * 0.24

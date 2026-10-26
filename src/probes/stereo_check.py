@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """Check the stereo claim: 江建民 left / 李庭匡 right guitar solos in the 121 s break."""
 from __future__ import annotations
+
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
 import subprocess, wave
 from pathlib import Path
 import numpy as np
 from scipy.signal import stft
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 FF = ROOT / "tools" / "ffmpeg.exe"
 SRC = ROOT / "input" / "song.flac"
 OUT = ROOT / "data" / "audio" / "stereo22050.wav"

@@ -6,6 +6,10 @@ harmonicity (autocorrelation salience) and band concentration.
 """
 from __future__ import annotations
 
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
+
 import os
 import sys
 import wave
@@ -13,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 MODEL_DIR = ROOT / "data" / "models" / "stems"
 os.environ.setdefault("DSH_AUDIO_MODEL_DIR", str(MODEL_DIR))
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")

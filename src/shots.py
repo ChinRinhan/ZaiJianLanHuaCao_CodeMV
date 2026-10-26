@@ -39,7 +39,10 @@ SHOTS = [
     ("04-wide-urgent", 81.19, 84.00, "W"),
     ("05-valley-turn", 84.00, 90.58, "V"),
     ("06-valley-grow", 90.58, 94.83, "V"),
-    ("07-mountain", 94.83, 97.11, "W"),
+    # 07 stays V: with W it was sandwiched between two V shots and the console flipped
+    # V→W→V inside 5 s (导演: 切换太频繁). The mountain rising with the world holding
+    # the frame is also the bigger moment — and the ridge poem lands here.
+    ("07-mountain", 94.83, 97.11, "V"),
     ("08-valley-full", 97.11, 99.30, "V"),
     ("09-wide-contrast", 99.30, 101.90, "W"),
     ("10-close-out", 101.90, 103.84, "W"),

@@ -5,13 +5,17 @@
 """
 from __future__ import annotations
 
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
+
 import wave
 from pathlib import Path
 
 import numpy as np
 import librosa
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "input" / "song.flac"
 MIX = ROOT / "data" / "audio" / "mono22050.wav"
 

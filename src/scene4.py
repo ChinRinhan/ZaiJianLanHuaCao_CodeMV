@@ -121,75 +121,137 @@ def _orchid_h(t):
     return _ramp(t, ORCHID)
 
 
-# ---- the ops column: what the machine is doing, one name per beat ------------------
-# plan/19 §5 item 2 needs the ops column to name the real operations. These are the
-# measured events of the intro (scene.INTRO_BOOTS) and the section names of the body.
-def _ops_names(t):
-    if t < 67.85:
-        names = ["BOOT", "FW 1.04", "STANDBY"]
-        for t_at, mid, lab in scene.INTRO_BOOTS:
-            if t >= t_at:
-                names.append(lab.split()[0])
-        return names[-6:]
-    sec = scene.section_at(t)
-    sid = sec[0]
-    base = {
-        "A1": ["PLAY 013", "RMS", "FFT.22", "TYPE"],
-        "B1": ["PLAY 013", "PEAK", "STAMP", "TYPE"],
-        "shout": ["NO VOCAL", "SHOUT", "FULL BLAST"],
-        "boutro": ["IDLE", "TAIL", "THINNING"],
-        "piano": ["PIANO SOLO", "ONE LINE", "WAIT"],
-        "duet": ["DUET", "TRADE", "WAIT"],
-        "bass": ["BASS", "GUITAR", "WAIT"],
-        "roar": ["GUITAR", "ROAR", "FULL"],
-        "cool": ["THIN", "COOL", "WAIT"],
-        "B2": ["PLAY 013", "RMS", "TYPE"],
-        "A2a": ["PLAY 013", "RMS", "TYPE"],
-        "A2b": ["PLAY 013", "KEY +1", "TYPE"],
-        "A3a": ["PLAY 013", "PEAK", "KEY +3", "TYPE"],
-        "A3b": ["PLAY 013", "PEAK", "KEY +3", "TYPE"],
-        "A4a": ["PLAY 013", "SUBTRACT", "TYPE"],
-        "A4b": ["PLAY 013", "SUBTRACT", "TYPE"],
+# ---- the boot console: one command per lift, one module per command -----------------
+# plan/19: "前奏每一个起伏就CRT上电出不同模块". Each row is a measured +4..+9 dB jump in
+# the mix; the command prints in the console (the token band) and the module opens through
+# its CRT aperture in whatever zone it lives in. The console line and the module are ONE
+# event — that is the command-line grammar the director asked for.
+#
+#   t      dB   command           module that opens             where
+#   5.2   --    mount ui/         the four-zone workbench       whole frame
+#   6.6  +6.7   load meter        LEVEL meter                   ops
+#  15.0  +4.1   load wave         SIGNAL plate + waveform       content
+#  20.0  +8.7   load spectrum     22 bands                      content
+#  32.0  +8.7   load playlist     PLAYLIST 13                   entity
+#  38.0  +5.3   load score        SCORE / CH                    ops
+#  42.0  +6.8   load syslog       telemetry read-outs           content
+#  47.0  +7.6   load sleeve       nameplate (the album card)    entity
+#  64.0  -10.8   standby          all modules dim, wait         whole machine
+BOOT_CMDS = [
+    (5.20, "mount ui/",     "skeleton"),
+    (6.60, "load meter",    "meter"),
+    (15.0, "load wave",     "wave"),
+    (20.0, "load spectrum", "spectrum"),
+    (32.0, "load playlist", "playlist"),
+    (38.0, "load score",    "score"),
+    (42.0, "load syslog",   "ticker"),
+    (47.0, "load sleeve",   "sleeve"),
+    (64.0, "standby",       None),
+]
+REVEAL = 0.55          # how long one CRT aperture takes to open
+
+
+def _boot_state(t: float):
+    """{module: reveal u} while the intro is assembling, None once the song starts."""
+    if t >= 67.85:
+        return None
+    st = {}
+    for t0, _cmd, key in BOOT_CMDS:
+        if key is None:
+            continue
+        st[key] = 0.0 if t < t0 else min(1.0, (t - t0) / REVEAL)
+    # standby: powered but idle — the machine waits for the voice (crt.py's idle state)
+    st["idle"] = 0.0 if t < 64.0 else min(1.0, (t - 64.0) / 1.2)
+    return st
+
+
+def _console_for(t: float):
+    """What the terminal would print: one line per command, locked when its module is up."""
+    out = []
+    for t0, cmd, key in BOOT_CMDS:
+        if t < t0:
+            break
+        tail = "" if key is None else ("  ok" if t - t0 >= REVEAL else "  ..")
+        out.append((t0, f"$ {cmd}{tail}"))
+    return out
+
+
+# ---- the emotional rise into B① (导演: 0:25 起情绪逐渐上升，到「给我…」画面要提高) ----
+# Rising points measured from the stems, the per-character times and the analysis video
+# (see the work log 2026-10-26). The vocal pace is itself a ladder: 0.61 → 0.33 → 0.18
+# s/字 across lines 8-10 — the words arrive 3.3x faster as the emotion climbs, and the
+# picture has to climb with them. 97-101 keeps its breath (「谁记得」的吸气) but the
+# envelope is rising throughout.
+#   89.0   bass walks in                 94.83  「茶花樱花满山开」世界打开
+#   97.11  唱速翻倍                      99.30  全曲最快句（吸气）
+#   103.84 「给我…」炸开                 126    呐喊
+RISE_KEYS = [
+    (87.0, 0.00), (89.0, 0.18), (94.83, 0.45), (97.11, 0.62),
+    (99.30, 0.72), (103.84, 0.88), (107.0, 1.00), (124.0, 1.00),
+]
+
+
+def _rise(t: float) -> float:
+    """How far the emotional climb has gone, 0..1 (pure function of t)."""
+    return _ramp(t, RISE_KEYS)
+
+
+# ---- the poem in the world: 胡适's first line, rewritten once ---------------------
+# 导演三条: 世界里只放首句「我从山中来」(一次，克制)；替换动效 = 旧字划掉→新字 decode
+# 打上去（与机器层同语法）；清空期诗句静淡一行不闪。
+# The world carries 1921's line. The machine's REWRITE 01 (我→谁) propagates INTO the
+# world when its hold expires — "the machine edited, now the world accepts it". When the
+# mountain rises the line lands on the ridge: once in the whole film (plan/05 §3.2).
+POEM_OLD = "我从山中来"
+POEM_FADE = (67.85, 68.60)     # 静淡一行，慢淡入，不闪
+POEM_STRIKE = 70.39            # REWRITE 01 hold ends → the world takes the edit
+POEM_TYPE = 70.65              # 谁 decode-typed in place
+POEM_RIDGE = (94.20, 96.50)    # horizon copy → ridge copy, riding the rising mountain
+POEM_OUT = (101.90, 103.50)    # fades before B① takes the screen
+
+
+def _poem_state(t: float):
+    """The world-layer poem's state at t, or None. Pure function of t."""
+    if not (POEM_FADE[0] <= t < POEM_OUT[1]):
+        return None
+    a = min(1.0, max(0.0, (t - POEM_FADE[0]) / (POEM_FADE[1] - POEM_FADE[0])))
+    if t >= POEM_OUT[0]:
+        a *= max(0.0, (POEM_OUT[1] - t) / (POEM_OUT[1] - POEM_OUT[0]))
+    if t < POEM_RIDGE[0]:
+        ridge = 0.0
+    elif t < POEM_RIDGE[1]:
+        u = (t - POEM_RIDGE[0]) / (POEM_RIDGE[1] - POEM_RIDGE[0])
+        ridge = u * u * (3 - 2 * u)
+    else:
+        ridge = 1.0
+    type_age = (t - POEM_TYPE) if t >= POEM_TYPE else None
+    # the strike and the dead glyph fade out once the new one has locked, so the line
+    # settles to 「谁从山中来」 with no scar left behind
+    if type_age is None:
+        strike_a = min(1.0, max(0.0, (t - POEM_STRIKE) / 0.25))
+    elif type_age < 1.0:
+        strike_a = 1.0
+    else:
+        strike_a = max(0.0, 1.0 - (type_age - 1.0) / 0.6)
+    return {
+        "alpha": a,
+        # the horizon copy gets out of the way early so the handover to the ridge
+        # never shows the line twice
+        "horizon": max(0.0, 1.0 - ridge * 1.8),
+        "ridge": ridge,
+        "strike": t >= POEM_STRIKE,
+        "strike_u": min(1.0, max(0.0, (t - POEM_STRIKE) / 0.35)),
+        "strike_a": strike_a,
+        "type_age": type_age,
+        "box_a": (min(1.0, max(0.0, (t - POEM_STRIKE) / 0.2))
+                  * max(0.0, min(1.0, (POEM_TYPE + 2.2 - t) / 0.8)))
+        if t >= POEM_STRIKE else 0.0,
     }
-    return base.get(sid, ["PLAY", "RMS", "TYPE"])
-
-
-def _ops_hi(t):
-    """Which ops row is the live one — the most recent operation."""
-    names = _ops_names(t)
-    return max(0, len(names) - 1)
-
-
-# ---- the boot log for the opening ---------------------------------------------------
-BOOT = [
-    (0.4, "LD-1994  LASER KARAOKE SYSTEM"),
-    (0.9, "FW 1.04   SRV 0001  OK"),
-    (1.6, "TRAY OPEN"),
-    (2.6, "DISC INSERTED  CD-DA"),
-    (3.4, "SEAT OK   CLAMP ON"),
-    (4.2, "SPINDLE START"),
-    (5.2, "FOCUS OK   TRACKING ON"),
-    (6.2, "TOC READ  SECTOR 000000"),
-    (7.4, "TOC OK    013 TRACKS"),
-    (8.0, "READY     SIDE A"),
-]
-MOUNT = [
-    (9.0, "MOUNT     WORLD/         OK"),
-    (20.0, "SKY.CFG   16:9  4.7 MB   OK"),
-    (32.0, "TERRAIN   3 LAYERS       OK"),
-    (38.0, "ANALOG    22 BAND        OK"),
-    (47.0, "FLORA     1 POT 2 BLOOM  OK"),
-    (64.0, "ALL MODULES LOADED"),
-]
-
-
-def _log_for(t):
-    return BOOT + (MOUNT if t >= 9.0 else [])
 
 
 # ---- the lyric as token chips -------------------------------------------------------
 def _lyric_state(t):
-    """(chars, typed, struck, cursor, old) for the token band / the page.
+    """(chars, typed, struck, cursor, old, times) for the token band / the page.
 
     The typing is driven by the MEASURED per-character times when they are available, so a
     character lands when it is actually sung instead of when an even spread says so.
@@ -202,7 +264,7 @@ def _lyric_state(t):
     cur, nxt = scene.line_at(t)
     rw = scene.rewrite_at(t)
     if not cur:
-        return [], 0, None, True, None
+        return [], 0, None, True, None, None
 
     chars = list(cur["text"])
     times = line_times(cur)
@@ -211,6 +273,7 @@ def _lyric_state(t):
         while n < len(chars) and times[n] <= t + 1e-6:
             n += 1
     else:
+        times = None
         span = 2.6
         nxt_t = nxt["t"] if nxt else cur["t"] + span
         span = max(0.5, (nxt_t - cur["t"]) * 0.86)
@@ -224,15 +287,42 @@ def _lyric_state(t):
         # struck through above it. (REWRITES 03/04 replace TWO lines with one, so using
         # the table's "new" string would type 14 characters on a 7-character clock.)
         struck = idx if 0 <= idx < len(chars) else None
-        return chars, n, struck, n < len(chars), old
-    return chars, n, None, n < len(chars), None
+        return chars, n, struck, n < len(chars), old, times
+    return chars, n, None, n < len(chars), None, times
 
 
 def _cue_at(t):
+    """The stage direction, if one is happening now (啊预备唱 / 第二步 / 升key / 再升).
+
+    plan/19 §2 row 3: the four stage directions are NOT lyric text — they are shown as
+    their own red `>>` line, never mixed into the words.
+    """
     cur, _nxt = scene.line_at(t)
-    if cur and cur.get("cue"):
+    if cur and cur.get("cue") and t >= cur["cue_at"] - scene.LEAD:
         return cur["cue"]
     return None
+
+
+def _b1_big(t):
+    """B①' four demands, stamped across the whole frame (plan/05 §4).
+
+    This is the only place in the film where type covers both panes — the loudest 18 s
+    get the whole screen. The same words must not also crawl through the token band, so
+    the token band is emptied while they are up.
+
+    Returns (word, alpha, age) — age lets the drawing layer land the phrase like thunder.
+    """
+    if not (103.84 <= t < 124.0):
+        return None
+    w, a_in, a_out, age = scene._b1_word(t)
+    if not w:
+        return None
+    return w, a_in * a_out, age
+
+
+def _undo_at(t):
+    """The one character that goes back to its pre-rewrite version, for 0.6 s (plan/16 §2.3)."""
+    return scene.undo_at(t)
 
 
 # ---- the world state for a given time ----------------------------------------------
@@ -245,12 +335,13 @@ def _world_kw(t, *, mode="W", collapse=0.0):
     # A①' three waves (plan/12 ②). Before 94.20 the world is EMPTY on purpose: the
     # mountain is supposed to appear with the line that says the mountain is full of flowers.
     if t < 67.85:
-        # the intro: the right pane is dark. The machine is getting ready; the world has
-        # not been put on yet (plan/19 §4, and commit d95f739).
+        # the intro: the WORLD is dark — the machine is getting ready and the world has
+        # not been put on yet (plan/19 §4). The SIGNAL plate is not the world, it is the
+        # machine's own instrument, so it powers on with `load wave` / `load spectrum`.
         n = scene.intro_layer(t)
         idle = 1.0 if t < 64.0 else max(0.0, 1.0 - (t - 64.0) / 3.0)
         ramp = lambda k: min(1.0, max(0.0, (t - (scene.INTRO_LAYERS[k][0] - 0.6)) / 1.2))
-        return dict(sky_a=0.0, ridge_a=0.0, star_a=0.0, rain_a=0.0, plate_a=0.0,
+        return dict(sky_a=0.0, ridge_a=0.0, star_a=0.0, rain_a=0.0, plate_a=1.0,
                     pot_a=0.0, column_a=0.30 * ramp(0) * idle * 0.35, floor=0.70,
                     label="WORLD // VALLEY")
 
@@ -287,12 +378,21 @@ def _world_kw(t, *, mode="W", collapse=0.0):
     cam = scene.BREAK_CAMERA.get(sid)
     x_off, scale, floor = cam if cam else (0.0, 1.0, 0.70)
     amp_scale = amp * scale
+    # B① 雷霆: the demands do not sit on a still image — the world shakes as they land
+    if 103.84 <= t < 124.0:
+        amp_scale *= 1.0 + 0.22 * drive.drum_hit(t)
+    # the emotional climb (导演: 画面要有提高和上升) — the world gains energy as 宝哥 does
+    rise = _rise(t)
+    if 87.0 <= t < 124.0:
+        amp_scale *= 0.88 + 0.24 * rise
 
     # the column: it exists only while someone is singing, and in A① it also waits for
-    # the beam wave (plan/12 ②)
+    # the beam wave (plan/12 ②). The climb makes it taller — 宝哥的情绪在往上走.
     col = entity
     if in_a1:
         col = entity * w_beam
+    if 87.0 <= t < 124.0:
+        col *= 1.0 + 0.40 * rise
 
     return dict(
         # the sky comes with the terrain: plan/12 ② says the WORLD arrives in waves, and
@@ -301,7 +401,9 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         ridge_a=w_ter,
         star_a=max(0.0, 1.0 - 0.55 * mood) * (w_ter if in_a1 else 1.0),
         rain_a=rain,
-        plate_a=w_hud,
+        # the SIGNAL plate is the MACHINE's instrument, not the world — it powered on
+        # during the prelude (`load wave`) and stays on. Only A④'s subtraction drains it.
+        plate_a=w_hud if t >= 358.92 else 1.0,
         pot_a=pot,
         pot_count=1 if in_a1 else cnt,
         pot_x=0.845 if in_a1 else fx,
@@ -309,9 +411,13 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         floor=floor,
         amp_scale=amp_scale,
         x_off=x_off,
+        # the climb (导演: 画面要有提高和上升) — drives sky warmth, star brightness, glow
+        rise=rise,
         # plan/12 ①: the ground stays even when the world is gone. The horizon fades out
         # as the mountain arrives, so it never cuts across a ridge.
         horizon=(1.0 - w_ter) if in_a1 else 0.0,
+        # the poem's first line lives in the world during A① (导演三条)
+        poem=_poem_state(t),
         label=("WORLD // " + sid.upper()) if sid in scene.BREAK_CAMERA else "WORLD // VALLEY",
     )
 
@@ -327,13 +433,13 @@ def frame(t: float) -> Image.Image:
         return preview.black_frame(t, cursor_on=t < DUR - 0.35, thanks=t >= 391.0,
                                    thanks_alpha=1.0 if t < 393.0
                                    else max(0.0, 1.0 - (t - 393.0) / 1.6))
-    # the opening: the disc goes in, the machine comes up. preview's opening is about the
-    # machine and is finished; reuse it rather than re-implementing it in a new layout.
-    if t < 6.4:
-        if t < 5.6:
-            return preview.intro_scene(t)
-        u = (t - 5.6) / 0.8
-        return Image.blend(preview.intro_scene(t), _body(t), u)
+    # 0-5.2 s: the code stream — a disc goes into a machine and the machine reads it.
+    # That part is finished and the director likes it; it runs unchanged.
+    if t < 5.2:
+        return preview.intro_scene(t)
+    # 5.2 s on: NO crossfade into the workbench. A command line brings the workbench up
+    # through its CRT aperture (`> mount ui/`), and every prelude lift runs one more
+    # command that opens one more module. The console in the token band is the grammar.
     return _body(t)
 
 
@@ -355,34 +461,54 @@ def _body(t: float) -> Image.Image:
     if mode == "V":
         collapse = 1.0
 
-    chars, typed, struck, cursor, old = _lyric_state(t)
+    chars, typed, struck, cursor, old, times = _lyric_state(t)
     cue = _cue_at(t)
-    ops = _ops_names(t)
+    big = _b1_big(t)
+    undo = _undo_at(t)
     playing = 67.85 <= t < 386.5
     state = "PLAY" if playing else ("LOAD" if t < 67.85 else "READY")
 
+    # B①' demands are stamped over the world; the same words must not also crawl
+    # through the token band (plan/05 §4: one text, one place)
+    if big:
+        chars, typed, struck = [], 0, None
+
+    # the UNDO: one character goes back to its pre-rewrite version for 0.6 s
+    if undo:
+        _idx, _oldch = undo
+        if _idx < len(chars):
+            chars = list(chars)
+            chars[_idx] = _oldch
+
     kw = _world_kw(t, mode=mode, collapse=collapse)
+    # B① 界面过载（plan/05 §4: 评分冲顶、播放列表被挤、口令闪）— the machine is being
+    # blasted; the interface visibly suffers for it.
+    if 103.84 <= t < 124.0:
+        ov = min(1.0, max(0.0, (t - 103.84) / 1.6)) * min(1.0, max(0.0, (124.0 - t) / 1.2))
+    else:
+        ov = 0.0
     ent = dict(tray=0.0, disc=True, rpm=8.3 if t >= 2.24 else 0.0,
                state=state, power="PLAY" if playing else "ON",
-               nameplate=True)
-    if t < 5.6:
-        ent = dict(tray=0.0, disc=False, rpm=0.0, state="STANDBY", power="ON")
+               nameplate=True, squeeze=ov)
 
+    boot = _boot_state(t)
     paper_kw = dict(sub=None, horizon=0.10)
     if mode == "P":
         # the page: the lyric large and centred, one horizon at the foot
         return layout4.frame(
             t, mode="P", chars=chars, typed=typed, struck=struck, cursor=cursor,
-            state=state, playing=playing, paper_kw=paper_kw, old=old)
+            state=state, playing=playing, paper_kw=paper_kw, old=old, cue=cue,
+            times=times, boot=boot)
 
     return layout4.frame(
         t, mode="W", collapse=collapse,
         entity_kw=ent, content_kw=kw,
-        ops_names=ops, ops_hi=_ops_hi(t),
+        score=scene.score_at(t), level=scene.level_at(t),
         chars=chars, typed=typed, struck=struck, cursor=cursor,
         state=state, playing=playing,
-        old=old,
-        log=_log_for(t) if t < 67.85 else None)
+        old=old, cue=cue, big=big, times=times, boot=boot, overload=ov,
+        glow=0.30 + 0.16 * _rise(t),
+        log=_console_for(t) if boot is not None else None)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,10 @@
 Renders into out/m2/ so the M1 stills in out/preview/ stay untouched.
 """
 from __future__ import annotations
+
+import pathlib as _p, sys as _s
+_s.path.insert(0, str(_p.Path(__file__).resolve().parents[2]))   # 让 import preview/tk 仍然可用
+
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -11,7 +15,7 @@ from PIL import Image, ImageDraw
 import tk
 import preview
 
-OUT = Path(__file__).resolve().parents[1] / "out" / "m2"
+OUT = Path(__file__).resolve().parents[2] / "out" / "m2"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
