@@ -767,30 +767,57 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
     return img
 
 
+def _draw_disc(dl, cx, cy, r, revs, blur, dim=1.0, ax=None):
+    """One CD, drawn as a disc: hub, data rings, iridescent sheen, index smear, edge.
+
+    Drawn rather than moved: every frame recomputes it from the rotation angle, so at speed the
+    index mark becomes a smear rather than a strobe. `ax` limits drawing to a horizontal band
+    (used while the disc is still inside the tray slot).
+    """
+    if r < 1:
+        return
+    dl.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(52, 44, 30),
+               outline=fade(AMBER, 0.55 * dim))
+    for k in range(1, 9):
+        rr = r * k / 8
+        dl.ellipse([cx - rr, cy - rr, cx + rr, cy + rr],
+                   outline=fade(AMBER, 0.12 * (1 - 0.6 * blur) * dim))
+    for k in range(-int(r), int(r)):
+        if abs(k) < r * 0.97:
+            w_ = (r * r - k * k) ** 0.5
+            a_ = 0.42 * (1 - abs(k) / r) ** 1.4
+            col = mix((255, 236, 190), (150, 210, 255), (k + r) / (2 * r))
+            dl.line([(cx - w_, cy + k), (cx + w_, cy + k)], fill=fade(col, a_ * dim))
+    if revs > 0:
+        a0 = (revs * 360.0) % 360.0
+        dl.arc([cx - r + 1, cy - r + 1, cx + r - 1, cy + r - 1],
+               start=a0, end=a0 + 70 + 190 * blur,
+               fill=fade((255, 248, 225), 0.75 * (1 - 0.55 * blur) * dim), width=2)
+    dl.ellipse([cx - r * 0.30, cy - r * 0.30, cx + r * 0.30, cy + r * 0.30],
+               fill=(30, 24, 14), outline=fade(AMBER, 0.4 * dim))
+    dl.ellipse([cx - r * 0.055, cy - r * 0.055, cx + r * 0.055, cy + r * 0.055],
+               fill=fade(AMBER, 0.55 * dim))
+
+
 def intro_scene(t: float):
-    """0-6.4 s: the machine powers on. No object flies across the screen.
+    """0-6.4 s: a disc goes into a machine, then the machine comes on.
 
-    REWRITTEN after the director's note ("开头碟片特效很差，只有纯动作，中途还有字幕遮挡").
-    The old version slid a 64 px disc blob diagonally across a black frame and then parked the
-    four credit lines in the middle of the RIGHT pane, on top of the world. Both are pure
-    translation with no information in them — the exact thing plan/06 §5.1 indicted.
+    REWRITTEN TWICE. First version slid a 64 px blob across black (director: "只有纯动作").
+    Second version opened with a CRT aperture but put a bare white line on an empty frame with
+    nothing for it to mean (director: "最开始有一条意义不明的白线动效") and had no disc
+    insertion at all (director asked for one explicitly).
 
-    The reference PV opens completely differently (continuity_full_v2/s_boot.py): a CRT powers
-    on — a single hot line grows out of the centre, the picture then OPENS OUT of that line as
-    an aperture, and only after that does the interface come up layer by layer while a boot log
-    scrolls with decoding glyphs. Nothing travels; everything is revealed, and every number in
-    the frame is changing. That is the grammar borrowed here.
+    Now the line has a job: it IS the tray slot. And the insertion is a real mechanism, in the
+    order a top-loading deck actually does it:
 
-      0.00-0.50  dark glass. a hairline grows out of the centre of the left column
-      0.50-1.25  the picture opens out of the line into the machine column (CRT aperture)
-      1.25-2.10  the transport panel comes up; the log starts; the tray slot lights
-      2.10-2.70  INSERT DISC: the disc is drawn outward from the spindle, not flown in;
-                 it seats with a two-frame flash
-      2.70-3.60  SPIN UP: rpm climbs 0 -> 8.3 rev/s; rings blur with speed; sector counter runs
-      3.60-4.60  TOC READ: track counter ticks 01 -> 13 (the album really has 13 tracks),
-                 ending on 013 = this song; TOC OK
-      4.60-5.60  the song information resolves inside the transport, one datum per beat
-      5.60-6.40  the aperture widens to the full frame; the world's horizon appears; crossfade
+      0.00-0.55  the machine is dark. one hairline appears and grows — the tray slot opening
+      0.55-1.10  the tray slides OUT of the slot; the slot stays lit behind it
+      1.10-1.75  the disc is lowered onto the tray (from above, with a soft drop and a settle)
+      1.75-2.20  the disc seats: the hub catches, two-frame flash, the tray slides IN
+      2.20-3.05  CLAMP + SPIN UP: rpm ramps 0 -> 8.3 rev/s, the index mark smears
+      3.05-4.05  TOC READ: track counter 01 -> 13, every sector number moving
+      4.05-5.20  the song information resolves, one datum at a time, landing with overshoot
+      5.20-6.40  the panel stays; the aperture widens to the full frame; the world arrives
     """
     img = Image.new("RGB", (tk.W, tk.H), tk.BG)
     d = ImageDraw.Draw(img)
@@ -801,33 +828,33 @@ def intro_scene(t: float):
     cx = (X0 + X1) / 2
     cy = (Y0 + Y1) / 2
 
-    # ---- the aperture: a line, then a rectangle that opens out of it ----
+    # the transport panel's rect, kept for the whole film
+    box = (LEFT[0] + 8, LEFT[1] + 34, LEFT[2] - 8, LEFT[1] + 172)
+    BW = box[2] - box[0]
+    r = min((box[3] - box[1]) * 0.36, BW * 0.15)          # steady-state disc radius
+    seat_x = box[0] + r + 14                              # where the disc ends up
+    seat_y = box[1] + (box[3] - box[1]) * 0.60
+
+    # ---- the aperture: the machine's picture opens out of the tray slot ----
     line_a = 0.0
     aperture = None
     ln = None
-    if t < 0.14:
-        pass
-    elif t < 0.50:                                   # the hot line grows from the centre
-        u = tk.ease_out((t - 0.14) / 0.36)
-        hw = max(2.0, (X1 - X0) / 2 * u)
-        line_a = 0.75 + 0.25 * clock.pulse(t)
+    slot_y = box[1] + 11
+    if t < 0.55:                                          # the slot hairline opens
+        u = tk.ease_out(t / 0.55)
+        line_a = 0.30 + 0.55 * u
+        ln = (box[0] + 8, box[0] + 8 + (BW - 16) * u)
         aperture = None
-        ln = (cx - hw, cx + hw)
-    elif t < 1.25:                                   # the picture opens out of the line
-        # It opens from the TRANSPORT PANEL's centre line, not the centre of the column:
-        # the panel is what is being revealed, so the aperture has to grow where it lives.
-        # (Opening from the column centre uncovered an empty strip for 0.75 s.)
-        PB0, PB1 = Y0 + 34, Y0 + 172           # the panel band
-        pcy = (PB0 + PB1) / 2
-        u = tk.ease_out((t - 0.50) / 0.75)
-        hh = max(2.0, (PB1 - PB0) / 2 * u)
-        aperture = (X0, pcy - hh, X1, pcy + hh)
+    elif t < 1.60:                                        # picture opens out of the slot
+        u = tk.ease_out((t - 0.55) / 1.05)
+        hh = max(2.0, (box[3] - box[1]) * 0.5 * u)
+        aperture = (X0, (box[1] + box[3]) / 2 - hh, X1, (box[1] + box[3]) / 2 + hh)
         ln = None
-    elif t < 5.60:
+    elif t < 5.20:
         aperture = (X0, Y0, X1, Y1)
         ln = None
-    else:                                            # widen to the whole frame
-        u = tk.ease_io((t - 5.60) / 0.80)
+    else:                                                 # widen to the whole frame
+        u = tk.ease_io((t - 5.20) / 1.20)
         aperture = (
             X0 - (X0 + 8) * u,
             Y0 - (Y0 + 8) * u,
@@ -836,149 +863,165 @@ def intro_scene(t: float):
         )
         ln = None
 
-    # everything the machine draws goes on a separate layer, then through the aperture
     lay = Image.new("RGB", (tk.W, tk.H), GLASS)
     dl = ImageDraw.Draw(lay)
 
+    # Before the picture opens there is still a machine: a dark chassis with a lit slot.
+    # Without this the opening frame is a bare white line floating in black, which the
+    # director rightly called "意义不明".
+    if t < 1.60:
+        ch_u = min(1.0, t / 0.45)
+        for gr, a in ((10, 0.055), (5, 0.085), (2, 0.14)):
+            dl.rectangle([box[0] - gr, box[1] - gr, box[2] + gr, box[3] + gr],
+                         outline=fade(AMBER, a * ch_u))
+        # side seams so the chassis reads as a box in perspective, not a flat outline
+        dl.line([(box[0] - 10, box[1] - 10), (box[0] - 10, box[3] + 10)],
+                fill=fade(AMBER, 0.05 * ch_u))
+        dl.line([(box[2] + 10, box[1] - 10), (box[2] + 10, box[3] + 10)],
+                fill=fade(AMBER, 0.05 * ch_u))
+
+    # ---- mechanism state, all of it derived from t ----
+    tray_out = 0.0
+    if 0.55 <= t < 1.10:
+        tray_out = tk.ease_back(min(1.0, (t - 0.55) / 0.42))
+    elif 1.10 <= t < 1.78:
+        tray_out = 1.0
+    elif 1.78 <= t < 2.24:
+        tray_out = 1.0 - tk.ease_io(min(1.0, (t - 1.78) / 0.40))
+    # where the disc is, and how big
+    disc_x, disc_y, disc_r = seat_x, seat_y, r
+    drop = 0.0
+    if t < 1.10:
+        disc_r = 0.0
+    elif t < 1.78:
+        # lowered onto the tray from above: falls, overshoots a hair, settles
+        k = min(1.0, (t - 1.10) / 0.55)
+        drop = 1.0 - tk.ease_back(k, s=1.6)
+        disc_y = seat_y - 150 * drop
+        disc_r = r * min(1.0, 0.55 + 0.45 * k)
+    rpm = 0.0
+    if t >= 2.24:
+        rpm = min(8.3, 8.3 * (t - 2.24) / 0.81)
+    blur = min(1.0, rpm / 8.3) if rpm > 0 else 0.0
+    revs = 0.0
+    if t >= 2.24:
+        t0, peak = 2.24, 8.3
+        if t <= 3.05:
+            u = (t - t0) / 0.81
+            revs = 0.5 * peak * (t - t0) * u
+        else:
+            revs = 0.5 * peak * 0.81 + peak * (t - 3.05)
+
     if aperture is not None:
-        # ---- the transport panel, at the rect it will keep for the whole film ----
-        box = (LEFT[0] + 8, LEFT[1] + 34, LEFT[2] - 8, LEFT[1] + 172)
-        # The panel comes up WITH the aperture, not after it: a CRT opening onto an empty
-        # rectangle for 0.75 s reads as a black bar, not as a picture warming up.
-        live = t >= 0.50
-        if live:
-            # The panel is already at ~60% the moment the aperture shows it, so the opening
-            # reveals a machine rather than an empty grey rectangle. It then finishes coming
-            # up over 0.5 s with an overshoot (ease_back), not from zero.
-            boot_a = 1.0
-            # frame first, then the slot, then the label — three separate arrivals
-            dl.rectangle(box, outline=fade(AMBER, 0.55 * boot_a))
-            slot_u = tk.ease_out(min(1.0, (t - 1.45) / 0.45))
-            if slot_u > 0:
-                yslot = box[1] + 11
-                x_end = box[0] + 6 + (box[2] - box[0] - 12) * slot_u
-                dl.line([(box[0] + 6, yslot), (x_end, yslot)], fill=fade(AMBER, 0.20))
-            if t >= 1.45:
-                tk.text(dl, (box[0] + 8, box[1] + 1), "CD TRANSPORT",
-                        font(tk.MONO, 8), AMBER, 0.72 * boot_a)
-            # state word in the corner: changes as the machine works, i.e. it carries information
-            state, scol = "STANDBY", AMBER
-            if t >= 2.10:
-                state, scol = "SEEK", AMBER
-            if t >= 2.70:
-                state, scol = "SPIN UP", AMBER
-            if t >= 2.86:
-                state, scol = "TOC READ", AMBER
-            if t >= 4.34:
-                state, scol = "TOC OK", GREEN
-            if t >= 4.60:
-                state, scol = "READY", GREEN
-            if state != "STANDBY" or t >= 1.45:
-                tk.text(dl, (box[2] - 74, box[1] + 1), state, font(tk.MONO, 8), scol,
-                        0.92 * boot_a)
+        # ---- transport panel ----
+        dl.rectangle(box, outline=fade(AMBER, 0.55))
+        tk.text(dl, (box[0] + 8, box[1] + 1), "CD TRANSPORT", font(tk.MONO, 8), AMBER, 0.72)
 
-        # ---- the disc: drawn outward from the spindle once the tray is lit ----
-        if t >= 2.10:
-            r = min((box[3] - box[1]) * 0.36, (box[2] - box[0]) * 0.15)
-            dcx, dcy = box[0] + r + 14, box[1] + (box[3] - box[1]) * 0.60
-            grow = tk.ease_back(min(1.0, (t - 2.10) / 0.45))
-            r_eff = r * grow
-            # spin: real 1x ramp, integrated analytically so frame(t) stays a pure function
-            def _revs(tt):
-                t0, t1, peak = 2.70, 3.60, 8.3
-                if tt <= t0:
-                    return 0.0
-                if tt >= t1:
-                    return 0.5 * peak * (t1 - t0) + peak * (tt - t1)
-                u = (tt - t0) / (t1 - t0)
-                return 0.5 * peak * (t - t0) * u            # ramped integral
-            rpm_now = 0.0 if t < 2.70 else (min(8.3, 8.3 * (t - 2.70) / 0.90))
-            revs = _revs(t)
-            blur = min(1.0, rpm_now / 8.3)
+        # ---- the tray: a drawer that slides out of the slot, the disc rides on it ----
+        if tray_out > 0.01:
+            th = (box[3] - box[1]) * 0.52
+            ty = box[1] + 22
+            tx1 = box[0] + 4 - 26 * tray_out
+            tx2 = box[2] - 4 + 26 * tray_out
+            dl.rectangle([tx1, ty, tx2, ty + th], fill=(14, 11, 6),
+                         outline=fade(AMBER, 0.30 + 0.25 * tray_out))
+            # the tray's own recess where the disc sits
+            dl.ellipse([seat_x - r * 1.06, seat_y - r * 1.06,
+                        seat_x + r * 1.06, seat_y + r * 1.06],
+                       outline=fade(AMBER, 0.22 * tray_out))
+            tk.text(dl, (tx1 + 6, ty + th - 12), "TRAY", font(tk.MONO, 7), AMBER, 0.35 * tray_out)
 
-            dl.ellipse([dcx - r_eff, dcy - r_eff, dcx + r_eff, dcy + r_eff],
-                       fill=(52, 44, 30), outline=fade(AMBER, 0.55))
-            for k in range(1, 8):
-                rr = r_eff * k / 8
-                dl.ellipse([dcx - rr, dcy - rr, dcx + rr, dcy + rr],
-                           outline=fade(AMBER, 0.13 * (1 - 0.6 * blur)))
-            # iridescent sweep — its angular offset is the rotation, but at speed it becomes a
-            # static sheen plus a smear, so we never draw a strobe
-            for k in range(-int(r_eff), int(r_eff)):
-                if abs(k) < r_eff * 0.97:
-                    w_ = (r_eff * r_eff - k * k) ** 0.5
-                    a_ = 0.42 * (1 - abs(k) / max(1, r_eff)) ** 1.4
-                    col = mix((255, 236, 190), (150, 210, 255), (k + r_eff) / (2 * max(1, r_eff)))
-                    dl.line([(dcx - w_, dcy + k), (dcx + w_, dcy + k)], fill=fade(col, a_))
-            # the index mark: at low speed you can see it; at full speed it is a smear arc
-            if revs > 0:
-                a0 = (revs * 360.0) % 360.0
-                arc_a = 0.75 * (1 - 0.55 * blur)
-                spread = 70 + 190 * blur
-                dl.arc([dcx - r_eff + 1, dcy - r_eff + 1, dcx + r_eff - 1, dcy + r_eff - 1],
-                       start=a0, end=a0 + spread, fill=fade((255, 248, 225), arc_a), width=2)
-            dl.ellipse([dcx - r_eff * 0.30, dcy - r_eff * 0.30,
-                        dcx + r_eff * 0.30, dcy + r_eff * 0.30],
-                       fill=(30, 24, 14), outline=fade(AMBER, 0.4))
-            dl.ellipse([dcx - 3, dcy - 3, dcx + 3, dcy + 3], fill=fade(AMBER, 0.6))
-            # the seat flash — two frames, an event rather than a fade
-            if 2.52 <= t < 2.60:
-                dl.line([(box[0] + 6, box[1] + 11), (box[2] - 6, box[1] + 11)],
-                        fill=fade((255, 240, 210), 0.5))
+        # ---- the slot line: this is the hairline from the first second, now with a job ----
+        slot_w = min(1.0, t / 0.55)
+        dl.line([(box[0] + 8, slot_y), (box[0] + 8 + (BW - 16) * slot_w, slot_y)],
+                fill=fade((255, 246, 224), 0.55 if tray_out < 0.99 else 0.30), width=2)
 
-            # ---- the song information resolves inside the transport, one datum at a time ----
-            tx = box[0] + r * 2 + 26
-            info = [
-                (4.60, f"TRACK 013", tk.MONO, 9, 0.50),
-                (4.74, "再见 兰花草", tk.CJK, 22, 0.98),
-                (4.94, "张雨生", tk.CJK, 13, 0.74),
-                (5.10, "卡拉OK·台北·我", tk.CJK, 11, 0.55),
-                (5.24, "1994 飞碟唱片", tk.CJK, 9, 0.42),
-            ]
-            for t_at, sì, fpath, fs, aa in info:
-                if t < t_at:
-                    continue
-                u = tk.ease_back(min(1.0, (t - t_at) / 0.30))
-                yy = {"TRACK": box[1] + 17}.get(sì[:5], None)
-                idx = [i for i, it in enumerate(info) if it[0] == t_at][0]
-                ys = [box[1] + 17, box[1] + 34, box[1] + 66, box[1] + 88, box[1] + 106][idx]
-                # a short 6 px rise with overshoot: the datum lands, it does not slide
-                tk.text(dl, (tx, ys + (1 - u) * 6), sì, font(fpath, fs), AMBER, aa * min(1.0, u * 1.6))
+        # ---- the disc (drawn AFTER the tray so it visibly rides on it) ----
+        if disc_r > 0.5:
+            _draw_disc(dl, disc_x, disc_y, disc_r, revs, blur)
+            if t >= 1.78:
+                # once seated, mask it back inside the panel so it reads as "in the machine"
+                lay2 = Image.new("RGB", (tk.W, tk.H), GLASS)
+                d2 = ImageDraw.Draw(lay2)
+                _draw_disc(d2, disc_x, disc_y, disc_r, revs, blur)
+                m = Image.new("L", (tk.W, tk.H), 0)
+                ImageDraw.Draw(m).rectangle(
+                    (box[0] + 1, box[1] + 13, box[2] - 1, box[3] - 1), fill=255)
+                lay.paste(lay2, (0, 0), m)
+                dl = ImageDraw.Draw(lay)
 
-        # ---- the boot log: accumulated, never cleared (plan/07 §2.2) ----
-        if live:
-            LOG = [
-                (0.62, "LD-1994  LASER KARAOKE SYSTEM"),
-                (0.86, "FW 1.04   SRV 0001  OK"),
-                (1.12, "TRAY OPEN"),
-                (2.16, "DISC DETECTED  CD-DA"),
-                (2.52, "SEAT OK   CLAMP ON"),
-                (2.70, "SPINDLE START"),
-                (3.10, "FOCUS OK   TRACKING ON"),
-                (3.60, "TOC READ  SECTOR 000000"),
-                (4.34, "TOC OK    013 TRACKS"),
-                (4.60, "READY     SIDE A"),
-            ]
-            ly = LEFT[1] + 196
-            for i, (t_at, s_) in enumerate(LOG):
-                if t < t_at:
-                    break
-                age = t - t_at
-                txt = tk.decode(s_, age, seed=frame_no * 31 + i, rate=60.0, settle=0.10)
-                tk.text(dl, (LEFT[0] + 12, ly + i * 15), f"{i:02d}", font(tk.MONO, 9), AMBER, 0.42)
-                tk.text(dl, (LEFT[0] + 38, ly + i * 15), txt, font(tk.MONO, 9), AMBER,
-                        0.50 + 0.42 * min(1.0, age * 4))
+        # ---- seat flash: two frames, an event ----
+        if 1.72 <= t < 1.80:
+            dl.line([(box[0] + 8, slot_y), (box[2] - 8, slot_y)],
+                    fill=fade((255, 240, 210), 0.55))
 
-        # ---- live read-outs: every one of these is a number that changes ----
-        if live and t >= 2.70:
-            rx, ry = LEFT[0] + 12, LEFT[1] + 372
-            rpm_v = 0.0 if t < 2.70 else min(8.3, 8.3 * (t - 2.70) / 0.90)
-            sectors = int(min(27540, max(0.0, (t - 3.10)) / 0.95 * 27540))
+        # ---- state word + song information ----
+        state, scol = "DARK", AMBER
+        if t >= 0.55:
+            state, scol = "TRAY OUT", AMBER
+        if t >= 1.10:
+            state, scol = "LOAD", AMBER
+        if t >= 1.78:
+            state, scol = "CLAMP", AMBER
+        if t >= 2.24:
+            state, scol = "SPIN UP", AMBER
+        if t >= 3.05:
+            state, scol = "TOC READ", AMBER
+        if t >= 3.95:
+            state, scol = "TOC OK", GREEN
+        if t >= 4.20:
+            state, scol = "READY", GREEN
+        if t >= 0.55:
+            tk.text(dl, (box[2] - 78, box[1] + 1), state, font(tk.MONO, 8), scol, 0.92)
+
+        tx = box[0] + r * 2 + 26
+        info = [
+            (4.20, "TRACK 013", tk.MONO, 9, 0.50),
+            (4.34, "再见 兰花草", tk.CJK, 22, 0.98),
+            (4.56, "张雨生", tk.CJK, 13, 0.74),
+            (4.74, "卡拉OK·台北·我", tk.CJK, 11, 0.55),
+            (4.90, "1994 飞碟唱片", tk.CJK, 9, 0.42),
+        ]
+        ys_list = [box[1] + 17, box[1] + 34, box[1] + 66, box[1] + 88, box[1] + 106]
+        for i, (t_at, s_, fpath, fs, aa) in enumerate(info):
+            if t < t_at:
+                continue
+            u = tk.ease_back(min(1.0, (t - t_at) / 0.30))
+            tk.text(dl, (tx, ys_list[i] + (1 - u) * 6), s_,
+                    font(fpath, fs), AMBER, aa * min(1.0, u * 1.6))
+
+        # ---- the boot log: accumulated, never cleared ----
+        LOG = [
+            (0.58, "LD-1994  LASER KARAOKE SYSTEM"),
+            (0.80, "FW 1.04   SRV 0001  OK"),
+            (1.10, "TRAY OPEN"),
+            (1.42, "DISC INSERTED  CD-DA"),
+            (1.78, "SEAT OK   CLAMP ON"),
+            (2.24, "SPINDLE START"),
+            (2.80, "FOCUS OK   TRACKING ON"),
+            (3.05, "TOC READ  SECTOR 000000"),
+            (3.95, "TOC OK    013 TRACKS"),
+            (4.20, "READY     SIDE A"),
+        ]
+        ly = box[3] + 22
+        for i, (t_at, s_) in enumerate(LOG):
+            if t < t_at:
+                break
+            age = t - t_at
+            txt = tk.decode(s_, age, seed=frame_no * 31 + i, rate=60.0, settle=0.10)
+            tk.text(dl, (LEFT[0] + 12, ly + i * 15), f"{i:02d}", font(tk.MONO, 9), AMBER, 0.42)
+            tk.text(dl, (LEFT[0] + 38, ly + i * 15), txt, font(tk.MONO, 9), AMBER,
+                    0.50 + 0.42 * min(1.0, age * 4))
+
+        # ---- live read-outs: every number here changes ----
+        if t >= 0.55:
+            rx, ry = LEFT[0] + 12, box[3] + 182
+            sectors = int(min(27540, max(0.0, (t - 3.05)) / 0.90 * 27540))
             track_n = 1
-            if t >= 3.60:
-                track_n = min(13, 1 + int((t - 3.60) / 0.055))
+            if t >= 3.05:
+                track_n = min(13, 1 + int((t - 3.05) / 0.045))
             rows = [
-                ("SPINDLE", f"{rpm_v:4.1f} rev/s"),
+                ("SPINDLE", f"{rpm:4.1f} rev/s"),
                 ("SECTOR", f"{sectors:06d}"),
                 ("TRACK", f"{track_n:02d}/13"),
                 ("CH 1-6", "[ -- ]"),
@@ -986,42 +1029,29 @@ def intro_scene(t: float):
             for i, (k, v) in enumerate(rows):
                 yy = ry + i * 16
                 tk.text(dl, (rx, yy), k, font(tk.MONO, 9), AMBER, 0.48)
-                col = RED if (k == "CH 1-6") else AMBER
-                tk.text(dl, (rx + 74, yy), v, font(tk.MONO_B, 10), col, 0.92)
-            # a thin level bar that actually tracks the spindle ramp
-            bw = 150
-            dl.rectangle([rx, ry + 70, rx + bw, ry + 74], fill=(24, 17, 6))
-            dl.rectangle([rx, ry + 70, rx + int(bw * min(1.0, rpm_v / 8.3)), ry + 74],
+                tk.text(dl, (rx + 74, yy), v, font(tk.MONO_B, 10),
+                        RED if k == "CH 1-6" else AMBER, 0.92)
+            bw2 = 150
+            dl.rectangle([rx, ry + 70, rx + bw2, ry + 74], fill=(24, 17, 6))
+            dl.rectangle([rx, ry + 70, rx + int(bw2 * min(1.0, rpm / 8.3)), ry + 74],
                          fill=fade(AMBER, 0.80))
 
-    # While the aperture is still widening, the world is already there behind it: a horizon and
-    # a few stars, dim. Otherwise the 0.8 s reveal uncovers an empty right pane, which reads as
-    # "the render failed" rather than "the world is arriving".
-    if t >= 5.30:
-        u = tk.ease_io(min(1.0, (t - 5.30) / 1.10))
-        rgb = ImageDraw.Draw(lay)
-        yh = RIGHT[1] + (RIGHT[3] - RIGHT[1]) * 0.66
-        rgb.line([(RIGHT[0] + 8, yh), (RIGHT[2] - 8, yh)],
-                 fill=fade(BLUE_HI, 0.10 * u))
-        tk.stars(lay, RIGHT, t, 11, 0.7 * u)
-        tk.hud(rgb, RIGHT, t, "WORLD // VALLEY", BLUE_HI, 0.30 * u, stamp="261026 0353")
-
-    # ---- through the aperture, then the hot line ----
-    # mask = 255 OUTSIDE the aperture, 0 inside. Image.composite(A, B, mask) takes A where the
-    # mask is 255 and B where it is 0, so the arguments are (dark glass, the drawing, mask):
-    # outside -> glass, inside -> the picture. (Getting this backwards paints the picture
-    # outside the aperture and leaves the aperture black.)
-    mask = Image.new("L", (tk.W, tk.H), 255)
+    # ---- through the aperture ----
+    # When there is no aperture yet (the first 1.6 s) the chassis and the slot line are all
+    # there is; compositing against a full-screen mask here would erase them, which is why the
+    # opening frame was still a bare line in black.
     if aperture is not None:
+        mask = Image.new("L", (tk.W, tk.H), 255)
         ImageDraw.Draw(mask).rectangle([int(round(v)) for v in aperture], fill=0)
-    img = Image.composite(Image.new("RGB", (tk.W, tk.H), GLASS), lay, mask)
+        img = Image.composite(Image.new("RGB", (tk.W, tk.H), GLASS), lay, mask)
+    else:
+        img = lay
     d = ImageDraw.Draw(img)
+    # the hairline IS the tray slot: it survives above the aperture so you always see where
+    # the disc goes in, and it is the only bright thing before the picture opens.
     if ln is not None and line_a > 0:
-        d.line([(ln[0], cy), (ln[1], cy)], fill=fade((255, 246, 224), line_a), width=3)
-    # NO warm-up veil. It painted a flat grey plate over the opening aperture for 0.35 s and
-    # read as a bug, not as a CRT warming up. The aperture reveal itself is the effect.
+        d.line([(ln[0], slot_y), (ln[1], slot_y)], fill=fade((255, 246, 224), line_a), width=2)
     return post(img, 0.35)
-
 
 def main():
     shots = [

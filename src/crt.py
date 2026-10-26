@@ -68,21 +68,23 @@ def boot_panel(img: Image.Image, rect, t: float, u: float, title: str,
     ax0, ay0, ax1, ay1 = (int(round(v)) for v in ap)
     lay = img.crop((ax0, ay0, ax1, ay1))
     dl = ImageDraw.Draw(lay)
+    lw, lh = lay.size
 
     def tx(x, y, s, f, c, a):
         dl.text((x - ax0, y - ay0), s, font=f, fill=tk.fade(c, a))
 
-    # frame + title bar, but only the part inside the aperture
-    dl.rectangle([x0 - ax0, y0 - ay0, x1 - ax0, y1 - ay0], outline=tk.fade(tk.AMBER, 0.42 * dim))
-    if ay1 - ay0 > 22:
+    # The frame goes 1 px INSIDE the crop. Drawing it at the crop's own right/bottom edge put
+    # those two sides outside the image, so every module looked like it had only a top-left
+    # corner — the "线框没有画完" the director caught.
+    dl.rectangle([0, 0, lw - 1, lh - 1], outline=tk.fade(tk.AMBER, 0.42 * dim))
+    if lh > 22:
         txt = tk.decode(title, max(0.0, (t - 0.0)) if u < 1.0 else 9.0,
                         seed=seed * 7919 + int(t * 24), rate=90.0, settle=0.08)
         tx(x0 + 7, y0 + 4, txt, tk.font(tk.MONO, 9), tk.AMBER, 0.80 * dim)
         if state:
             tx(x1 - 42, y0 + 4, state, tk.font(tk.MONO, 8),
                tk.GREEN if state == "LIVE" else tk.AMBER, 0.72 * dim)
-        dl.line([(x0 - ax0 + 5, y0 - ay0 + 17), (x1 - ax0 - 5, y0 - ay0 + 17)],
-                fill=tk.fade(tk.AMBER, 0.20 * dim))
+        dl.line([(5, 17), (lw - 6, 17)], fill=tk.fade(tk.AMBER, 0.20 * dim))
 
     # the module's own read-outs
     if rows:
@@ -95,8 +97,8 @@ def boot_panel(img: Image.Image, rect, t: float, u: float, title: str,
 
     if 0.0 < u < 1.0:
         # the hot scan line marks the front of the reveal
-        mid = (ay0 + ay1) // 2
-        dl.line([(0, mid - ay0), (ax1 - ax0, mid - ay0)], fill=tk.fade(HOT, 0.5 * dim), width=1)
+        mid = lh // 2
+        dl.line([(0, mid), (lw, mid)], fill=tk.fade(HOT, 0.5 * dim), width=1)
 
     img.paste(lay, (ax0, ay0))
     return img
