@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 
 import clock
+import crt
 import drive
 import tk
 from tk import (AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix, post)
@@ -384,7 +385,8 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             ridge_row=2, rewrite=None, streak=0.0, machine_note=None, cold=0.0,
             collapsed=False, game_set=False, rewrite05=False, amp_scale=1.0, flower_x=0.72,
             flower_count=1, world_fade=1.0, pen=None, pen_times=None,
-            w_terrain=1.0, w_beam=None, w_hud=1.0, big_b1=None, camera=None, undo=None):
+            w_terrain=1.0, w_beam=None, w_hud=1.0, big_b1=None, camera=None, undo=None,
+            intro_mode=False):
     if w_beam is None:
         w_beam = w_terrain
     img = Image.new("RGB", (tk.W, tk.H), BG)
@@ -513,10 +515,16 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
                 dl.line([(x0 + 24, sy + k), (x1 - 24, sy + k)], fill=mix((0, 0, 0), (255, 226, 190), aa))
             img = ImageChops.add(img, lay)
             d = ImageDraw.Draw(img)
-        karaoke(img, d, t, boot=boot, lyric=lyric, cue=cue, score=score,
-                level=level, progress=progress, playing=playing, rewrite=rewrite,
-                collapsed=collapsed, game_set=game_set, rewrite05=rewrite05, pen=pen,
-                pen_times=pen_times, undo=undo)
+        if intro_mode:
+            # the machine is still coming up: draw the booted modules only. The finished
+            # interface (LCD, cue, score, playlist, progress) does not exist yet.
+            img = intro_modules(img, t, int(round(t * 24)))
+            d = ImageDraw.Draw(img)
+        else:
+            karaoke(img, d, t, boot=boot, lyric=lyric, cue=cue, score=score,
+                    level=level, progress=progress, playing=playing, rewrite=rewrite,
+                    collapsed=collapsed, game_set=game_set, rewrite05=rewrite05, pen=pen,
+                    pen_times=pen_times, undo=undo)
         if cursor:
             d.rectangle([cursor[0], cursor[1], cursor[0] + 8, cursor[1] + 15], fill=BLUE_HI)
 
@@ -629,6 +637,69 @@ def black_frame(t: float, cursor_on: bool = True, thanks: bool = False, thanks_a
 
 def _lerp_box(a, b, u):
     return tuple(a[i] + (b[i] - a[i]) * u for i in range(4))
+
+
+def _band_hi(t: float) -> float:
+    b = _band_at(t)
+    if not b:
+        return 0.0
+    return float(b["cur"][15:].mean())
+
+
+def _band_ctr(t: float) -> float:
+    b = _band_at(t)
+    if not b:
+        return 0.0
+    import numpy as _np
+    cur = _np.asarray(b["cur"], dtype=float)
+    return float((cur * _np.arange(len(cur))).sum() / max(1e-9, cur.sum()))
+
+
+def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
+    """The intro's real content: modules of the machine powering on, one per musical lift.
+
+    The director asked for the CRT gesture to become grammar — "前奏每一个起伏就CRT上电出不同模块".
+    Lift times come from scene.INTRO_BOOTS, which are measured dB jumps, not guesses.
+
+    Slots are the blocks the interface occupies later, so the intro builds the exact machine the
+    song then uses; nothing is thrown away when the intro hands over at 68 s.
+    """
+    import scene
+    L = LEFT
+    slots = [
+        ((L[0] + 8, 194, L[2] - 8, 276), "LEVEL METER",
+         lambda: [("LEVEL", f"{scene.level_at(t):4.2f}", None),
+                  ("CH 1-6", "[ -- ]", RED),
+                  ("PEAK", f"{scene.level_at(t) * 1.1:4.2f}", None)]),
+        ((L[0] + 8, 284, L[2] - 8, 318), "WAVEFORM 100 Hz",
+         lambda: [("RMS", f"{scene.rms_at(t):.4f}", None),
+                  ("WINDOW", "100 Hz", None)]),
+        ((L[0] + 8, 326, L[2] - 8, 394), "SPECTRUM 22 BAND",
+         lambda: [("BANDS", "22", None),
+                  ("HI>2k", f"{_band_hi(t):.2f}", None),
+                  ("CTR", f"{_band_ctr(t):.1f}", None)]),
+        ((L[0] + 8, 402, L[2] - 8, 470), "PLAYLIST 13 TRACKS",
+         lambda: [("TRACKS", "13", None),
+                  ("NOW", "013", GREEN)]),
+        ((L[0] + 8, 478, L[2] - 8, 512), "SCORE / CHANNELS",
+         lambda: [("SCORE", f"{scene.score_at(t):4.1f}", None)]),
+        ((L[0] + 8, 520, L[2] - 8, 552), "SYSLOG",
+         lambda: [("LOG", f"{frame_no:05d}f", None)]),
+        ((L[0] + 8, 560, L[2] - 8, 640), "SLEEVE",
+         lambda: [("ALBUM", "UFO-9405", None),
+                  ("YEAR", "1994", None)]),
+    ]
+    booted, _ = scene.intro_boot_state(t)
+    for i, (rect, title, rows) in enumerate(slots):
+        if i >= booted:
+            break
+        u = min(1.0, (t - scene.INTRO_BOOTS[i][0]) / 0.55)
+        # after 64 s everything drops. The modules go IDLE but stay powered — that is what
+        # makes "the machine is waiting for a voice" legible instead of "the render failed".
+        dim = 1.0 if t < 64.0 else max(0.35, 1.0 - (t - 64.0) / 4.0)
+        state = "LIVE" if (u >= 1.0 and t < 64.0) else ("IDLE" if t >= 64.0 else "LOCK")
+        img = crt.boot_panel(img, rect, t, u, title, rows(), dim=dim, seed=i, state=state)
+    return img
 
 
 def intro_scene(t: float):

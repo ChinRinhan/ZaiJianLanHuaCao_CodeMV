@@ -87,8 +87,50 @@ INTRO_LAYERS = [
 ]
 
 
+# ---- the intro: the machine powers up one module per lift --------------------
+# The director's note: "这个开场不错，后续又这个CRT上电再衍生出其他的，比如09 10期间的小起伏，
+# 20和40处同理，前奏每一个起伏就CRT上电出不同模块".
+#
+# So the CRT reveal is not a one-off for the opening: it is the film's grammar for bringing
+# anything on line. Every lift in the intro boots another module of the same machine, each with
+# its own aperture and its own read-outs. The lift times are measured, not guessed (see the
+# dB table in plan/19): each row below is a real +3..+13 dB jump in the mix, and the stem
+# columns say which instrument caused it.
+#
+#   t      dB    what actually happens (stems)                    module that powers on
+#   8.0   +6.7   violin alone; drums/bass still -65/-58            LIGHT METER   (level starts moving)
+#  15.0   +4.1   violin sustained, still no drums                 WAVEFORM      (a trace starts drawing)
+#  20.0   +8.7   the band hits: drums -46->-34, bass -43->-30     SPECTRUM      (22 bands light up)
+#  32.0   +8.7   piano/violin stack enters                       TRACK LIST    (the 13 tracks list)
+#  38.0   +5.3   everything: drums -52->-35, bass -46->-33        SCORE + CH    (the scoring block)
+#  42.0   +6.8   electric guitar enters                           TICKER        (the log line starts)
+#  47.0   +7.6   drums -28, bass -25: the loudest stack           SLEEVE        (cover art block)
+#  64.0  -10.8   everything drops; the machine waits for a voice  all modules idle, dim
+INTRO_BOOTS = [
+    # t, module id, the label printed in its title bar
+    (8.0, "meter", "LEVEL METER"),
+    (15.0, "wave", "WAVEFORM 100 Hz"),
+    (20.0, "spectrum", "SPECTRUM  22 BAND"),
+    (32.0, "playlist", "PLAYLIST  13 TRACKS"),
+    (38.0, "score", "SCORE / CHANNELS"),
+    (42.0, "ticker", "SYSLOG"),
+    (47.0, "sleeve", "SLEEVE"),
+]
+
+
+def intro_boot_state(t: float):
+    """How many modules are powered on, and how far the newest one is through its CRT reveal."""
+    n = 0
+    newest_u = 1.0
+    for t_at, _mid, _lab in INTRO_BOOTS:
+        if t >= t_at:
+            n += 1
+            newest_u = min(1.0, (t - t_at) / 0.55)
+    return n, newest_u
+
+
 def intro_layer(t: float) -> float:
-    """How many of the four layers have arrived (0..4)."""
+    """How many of the four musical layers have arrived (0..4)."""
     return sum(1 for lt, _, _ in INTRO_LAYERS if t >= lt)
 
 
@@ -353,12 +395,17 @@ def _normal(t: float):
     if t < 67.85:
         n = intro_layer(t)
         ramp = lambda k: min(1.0, max(0.0, (t - (INTRO_LAYERS[k][0] - 0.6)) / 1.2))
+        # The right pane stays DARK for the whole intro. The intro is the machine getting
+        # itself ready; the world has not been put on yet. It arrives with the first sung line
+        # at 67.85, which is also when the mountain is supposed to exist (plan/09 §4: "A① 是
+        # 全片唯一人还在的时刻，此时世界应该是空的").
+        idle = 1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)
         intro_extra = {
-            "entity": 0.62 * ramp(0) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
-            "rain": 0.30 * ramp(1) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
-            "flower": 0.52 * ramp(2) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
-            "spiral": 0.55 * ramp(3) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
-            "w_terrain": 0.35 + 0.65 * ramp(1),
+            "entity": 0.30 * ramp(0) * idle * 0.35,
+            "rain": 0.0,
+            "flower": 0.0,
+            "spiral": 0.0,
+            "w_terrain": 0.06 + 0.10 * ramp(3),
         }
         entity = intro_extra["entity"]
         rain = intro_extra["rain"]
@@ -386,6 +433,15 @@ def _normal(t: float):
     if a4_w:
         w_terrain = a4_w["w_terrain"]
 
+    # the instrument plate: absent through the intro (nothing has been wired up yet), then it
+    # fades in as the world does at 64-68 s, then A④ drains it.
+    if t < 67.85:
+        w_hud = 0.0 if t < 64.0 else min(1.0, (t - 64.0) / 3.85)
+    elif a4_w:
+        w_hud = a4_w["w_hud"]
+    else:
+        w_hud = 1.0
+
     return preview.compose(
         t,
         boot=1.0 if t >= 8.0 else max(0.12, t / 8.0),
@@ -410,6 +466,7 @@ def _normal(t: float):
         w_hud=a4_w["w_hud"] if a4_w else 1.0,
         camera=cam,
         undo=undo_at(t),
+        intro_mode=(t < 67.85),
     )
 
 
