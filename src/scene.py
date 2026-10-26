@@ -289,6 +289,27 @@ def _b1_word(t: float):
     return None, 0.0, 0.0
 
 
+# ---- UNDO: the one capability an editing program cannot reproduce -----------------
+# plan/16 §2.3, the third of the five difference points: "A④ 给一次 0.6 秒的 undo——字从新
+# 变回旧，再变回新。" In A④ the first line is "谁从山中来带着兰花草" (REWRITE 01's new
+# version). For 0.6 s the machine puts the 1921 character back: "我". Then it returns to "谁".
+# This is pure-function rendering's own gesture — no NLE can "调回某一帧的某个字".
+# Exactly once in the film. Twice would turn the thesis into a trick.
+UNDO_AT = 359.90
+UNDO_HOLD = 0.60
+UNDO_CHAR = (0, "我")      # index into the line, the pre-rewrite glyph
+
+
+def undo_at(t: float):
+    """(char_index, old_char) during the 0.6 s undo window, else None."""
+    if not (UNDO_AT <= t < UNDO_AT + UNDO_HOLD):
+        return None
+    cur, _ = line_at(t)
+    if not cur or not cur["text"].startswith("谁"):
+        return None
+    return UNDO_CHAR
+
+
 def _normal(t: float):
     s = section_at(t)
     _id, _s, _e, mood, cold, flower, entity, rain, spiral, amp, fx, cnt = s
@@ -388,6 +409,7 @@ def _normal(t: float):
         w_beam=a4_w["w_beam"] if a4_w else None,
         w_hud=a4_w["w_hud"] if a4_w else 1.0,
         camera=cam,
+        undo=undo_at(t),
     )
 
 

@@ -50,6 +50,53 @@ def ease(x: float) -> float:
     return x * x * (3 - 2 * x)
 
 
+# ---- the four easings the reference PV uses (plan/14 §4) ----------------------
+# We only had smoothstep, which is exactly why every arrival felt stiff: it decelerates
+# into the target and stops dead. ease_back overshoots and locks, which reads as "mechanical".
+def ease_io(u: float) -> float:
+    u = max(0.0, min(1.0, u))
+    return 4 * u ** 3 if u < 0.5 else 1 - (-2 * u + 2) ** 3 / 2
+
+
+def ease_out(u: float) -> float:
+    return 1 - (1 - max(0.0, min(1.0, u))) ** 3
+
+
+def ease_in(u: float) -> float:
+    return max(0.0, min(1.0, u)) ** 3
+
+
+def ease_back(u: float, s: float = 1.2) -> float:
+    """Out-back: arrives, overshoots a little, then locks in (reference kit.py:257).
+
+    Only use on moves of 0.4 s or longer — on fast elements the overshoot reads as jitter.
+    """
+    u = max(0.0, min(1.0, u)) - 1
+    return 1 + (s + 1) * u ** 3 + s * u ** 2
+
+
+SCR = "!<>-_\\/[]{}=+*^?#%$&@01|~:;"
+
+
+def decode(s: str, age: float, seed: int = 0, rate: float = 45.0, settle: float = 0.12) -> str:
+    """Typewriter where each new character flickers through random glyphs before it locks.
+
+    This is the reference PV's standard text birth (tuikit.decode). Deterministic: the seed is
+    the frame number, so any frame can be re-rendered on its own.
+    """
+    import random as _random
+    rng = _random.Random(seed)
+    n = min(len(s), max(0, int(age * rate)))
+    out = []
+    for i in range(n):
+        ch = s[i]
+        a = age - i / rate
+        if ch != " " and a < settle:
+            ch = rng.choice(SCR)
+        out.append(ch)
+    return "".join(out)
+
+
 def text(d: ImageDraw.ImageDraw, xy, s: str, f: ImageFont.FreeTypeFont, color, alpha: float = 1.0):
     d.text(xy, s, font=f, fill=fade(color, alpha))
 
