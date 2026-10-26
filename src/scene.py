@@ -108,7 +108,7 @@ INTRO_LAYERS = [
 #  64.0  -10.8   everything drops; the machine waits for a voice  all modules idle, dim
 INTRO_BOOTS = [
     # t, module id, the label printed in its title bar
-    (8.0, "meter", "LEVEL METER"),
+    (6.6, "meter", "LEVEL METER"),
     (15.0, "wave", "WAVEFORM 100 Hz"),
     (20.0, "spectrum", "SPECTRUM  22 BAND"),
     (32.0, "playlist", "PLAYLIST  13 TRACKS"),

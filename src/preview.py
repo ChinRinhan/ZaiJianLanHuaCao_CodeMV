@@ -405,7 +405,10 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         d_hit = drive.drum_hit(t)
         breath = beat_breath(t)
 
-        # layer 1: the mountain, composited alone so it can arrive before the machine does
+        # layer 1: the mountain, composited alone so it can arrive before the machine does.
+        # During the intro the right pane stays genuinely dark: the machine is still bringing
+        # its own modules on line and the world has not been put on yet.
+        world_w = 0.0 if intro_mode else 1.0
         wimg = Image.new("RGB", (tk.W, tk.H), BG)
         tk.sky(wimg, RIGHT, mood, cold)
         # `camera` = (ridge offset px, ridge scale, floor). Every section gets its own framing
@@ -419,11 +422,12 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             wimg = tk.sun(wimg, x0 + (x1 - x0) * 0.70, y0 + (y1 - y0) * 0.44, 30, warm=mood)
         tk.stars(wimg, RIGHT, t, seed, 1.0 - 0.55 * mood)
         tk.rain(wimg, RIGHT, t, rain * (0.25 + 1.15 * o_sig), seed)
-        img.paste(Image.blend(Image.new("RGB", (x1 - x0, y1 - y0), BG),
-                              wimg.crop((x0, y0, x1, y1)), w_terrain), (x0, y0))
+        if world_w > 0.01:
+            img.paste(Image.blend(Image.new("RGB", (x1 - x0, y1 - y0), BG),
+                                  wimg.crop((x0, y0, x1, y1)), w_terrain * world_w), (x0, y0))
 
         # layer 2: the beam and everything that breathes with the sound
-        if w_beam > 0.01:
+        if w_beam * world_w > 0.01:
             if spiral > 0:
                 img = tk.burst(img, x0 + (x1 - x0) * 0.40, y0 + (y1 - y0) * 0.40, t,
                                spiral * w_beam, mood)
@@ -462,16 +466,16 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             tk.ridge_text(img, RIGHT, ridge_lyric, seed=seed, warm=mood, row=ridge_row,
                           alpha=0.92 * w_terrain)
             d = ImageDraw.Draw(img)
-        if w_hud > 0.05:
+        if w_hud * world_w > 0.05:
             tk.reticle(img, x0 + (x1 - x0) * 0.40, y0 + (y1 - y0) * 0.40, 18)
             tk.ticks(img, RIGHT)
             tk.telemetry(img, RIGHT, t, seed, (1.0 - 0.4 * mood) * world_fade * w_hud)
         d = ImageDraw.Draw(img)
-        pane_border(d, RIGHT, BLUE_MID, 0.28)
-        tk.hud(d, RIGHT, t, label, BLUE_HI, 0.40, stamp="261026 0353")
+        pane_border(d, RIGHT, BLUE_MID, 0.28 * world_w)
+        tk.hud(d, RIGHT, t, label, BLUE_HI, 0.40 * world_w, stamp="261026 0353")
 
         # layer 3: the machine finally starts measuring what it was watching
-        if w_hud > 0.02:
+        if w_hud * world_w > 0.02:
             plate = (x0 + 16, y1 - 150, x0 + 470, y1 - 44)
             plt = breath + 0.10 * d_hit
             tk.hud_plate(img, plate, "SIGNAL / 24.15N 120.68E", BLUE_HI, 0.28 * w_hud * plt)
@@ -515,12 +519,7 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
                 dl.line([(x0 + 24, sy + k), (x1 - 24, sy + k)], fill=mix((0, 0, 0), (255, 226, 190), aa))
             img = ImageChops.add(img, lay)
             d = ImageDraw.Draw(img)
-        if intro_mode:
-            # the machine is still coming up: draw the booted modules only. The finished
-            # interface (LCD, cue, score, playlist, progress) does not exist yet.
-            img = intro_modules(img, t, int(round(t * 24)))
-            d = ImageDraw.Draw(img)
-        else:
+        if True:
             karaoke(img, d, t, boot=boot, lyric=lyric, cue=cue, score=score,
                     level=level, progress=progress, playing=playing, rewrite=rewrite,
                     collapsed=collapsed, game_set=game_set, rewrite05=rewrite05, pen=pen,
