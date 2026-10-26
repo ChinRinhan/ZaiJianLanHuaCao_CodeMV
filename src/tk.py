@@ -193,8 +193,15 @@ def _vgrad(size, top, bot, y0, y1):
     return g
 
 
-def terrain(img, rect, *, mood=0.0, seed=3, t=0.0, cold=0.0, amp_scale=1.0):
-    """Three ridge layers, each a masked vertical gradient so the mass reads as a silhouette."""
+def terrain(img, rect, *, mood=0.0, seed=3, t=0.0, cold=0.0, amp_scale=1.0,
+            x_off=0.0, floor=0.70):
+    """Three ridge layers, each a masked vertical gradient so the mass reads as a silhouette.
+
+    `x_off` slides the ridge pattern horizontally and `floor` moves the lowest ridge line up or
+    down, so a section can be framed differently without redrawing it: same world, different
+    camera. (plan/03 §2.1: the complaint was that the right pane looked identical at 80 s and
+    386 s. Changing only the seed gives "the same filter", not "a different shot".)
+    """
     x0, y0, x1, y1 = rect
     d = ImageDraw.Draw(img)
     h = y1 - y0
@@ -203,16 +210,18 @@ def terrain(img, rect, *, mood=0.0, seed=3, t=0.0, cold=0.0, amp_scale=1.0):
     rim = mix((150, 178, 235), (255, 190, 130), warm * 0.8)
     if cold > 0:
         rim = mix(rim, (210, 244, 255), cold)
+    # the three ridge baselines shift together with `floor`
+    f_shift = (floor - 0.70) * h
     layers = [
-        (y0 + h * 0.34, h * 0.150, 0.0034, mix((26, 34, 74), (96, 60, 50), warm * 0.55), mix((18, 24, 52), (58, 34, 34), warm * 0.4), 0, 0.45),
-        (y0 + h * 0.52, h * 0.185, 0.0050, mix((14, 19, 46), (60, 38, 38), warm * 0.45), mix((11, 15, 34), (34, 22, 24), warm * 0.35), 37, 0.75),
-        (y0 + h * 0.70, h * 0.210, 0.0072, mix((7, 10, 22), (28, 19, 20), warm * 0.35), mix((6, 8, 16), (16, 11, 13), warm * 0.25), 71, 1.0),
+        (y0 + h * 0.34 + f_shift, h * 0.150, 0.0034, mix((26, 34, 74), (96, 60, 50), warm * 0.55), mix((18, 24, 52), (58, 34, 34), warm * 0.4), 0, 0.45),
+        (y0 + h * 0.52 + f_shift, h * 0.185, 0.0050, mix((14, 19, 46), (60, 38, 38), warm * 0.45), mix((11, 15, 34), (34, 22, 24), warm * 0.35), 37, 0.75),
+        (y0 + h * 0.70 + f_shift, h * 0.210, 0.0072, mix((7, 10, 22), (28, 19, 20), warm * 0.35), mix((6, 8, 16), (16, 11, 13), warm * 0.25), 71, 1.0),
     ]
     for base, amp, scale, top_col, bot_col, sd, lit in layers:
         pts = []
         for x in range(x0, x1 + 1, 2):
-            v = fbm((x - x0) * scale, t * 0.055, seed + sd, 4)
-            v2 = noise2((x - x0) * scale * 3.7, t * 0.140, seed + sd + 9)
+            v = fbm((x - x0 - x_off) * scale, t * 0.055, seed + sd, 4)
+            v2 = noise2((x - x0 - x_off) * scale * 3.7, t * 0.140, seed + sd + 9)
             v = (v - 0.5) * 2 + (v2 - 0.5) * 0.55
             v = math.copysign(abs(v) ** 0.8, v)
             pts.append((x, int(base + amp * amp_scale * v)))

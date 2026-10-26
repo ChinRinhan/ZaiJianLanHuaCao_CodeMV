@@ -348,7 +348,7 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
             ridge_row=2, rewrite=None, streak=0.0, machine_note=None, cold=0.0,
             collapsed=False, game_set=False, rewrite05=False, amp_scale=1.0, flower_x=0.72,
             flower_count=1, world_fade=1.0, pen=None, pen_times=None,
-            w_terrain=1.0, w_beam=None, w_hud=1.0, big_b1=None):
+            w_terrain=1.0, w_beam=None, w_hud=1.0, big_b1=None, camera=None):
     if w_beam is None:
         w_beam = w_terrain
     img = Image.new("RGB", (tk.W, tk.H), BG)
@@ -370,8 +370,13 @@ def compose(t, *, boot=1.0, lyric=("", ""), cue=None, score=0.0, level=0.4,
         # layer 1: the mountain, composited alone so it can arrive before the machine does
         wimg = Image.new("RGB", (tk.W, tk.H), BG)
         tk.sky(wimg, RIGHT, mood, cold)
+        # `camera` = (ridge offset px, ridge scale, floor). Every section gets its own framing
+        # instead of the same mountain with a different filter — that was plan/03 §2.1, "the
+        # right pane does not move for six minutes".
+        _cam_off, _cam_scale, _cam_floor = camera if camera else (0.0, 1.0, 0.70)
         tk.terrain(wimg, RIGHT, mood=mood, seed=seed, t=t, cold=cold,
-                   amp_scale=amp_scale * (0.74 + 0.55 * b_sig))
+                   amp_scale=amp_scale * (0.74 + 0.55 * b_sig) * _cam_scale,
+                   x_off=_cam_off, floor=_cam_floor)
         if sun > 0:
             wimg = tk.sun(wimg, x0 + (x1 - x0) * 0.70, y0 + (y1 - y0) * 0.44, 30, warm=mood)
         tk.stars(wimg, RIGHT, t, seed, 1.0 - 0.55 * mood)

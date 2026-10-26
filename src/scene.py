@@ -70,6 +70,28 @@ REWRITES = [
 REWRITE_HOLD = 2.6          # seconds a diff stays on screen when its line starts
 BREAK = 2.0                 # a gap longer than this means the line must clear (reference words.py)
 
+# ---- the intro: four instruments light up one at a time ----------------------
+# The analysis video's captions name the order (plan/18 §5.1) and the stems confirm the
+# layer times: violin alone at 8-12 s (drums/bass are at -69 dB there), the band hits at
+# 20-24 s, piano/violin/electric guitar stack from 36 s, the loudest stacking at 48-64 s,
+# everything drops at 64 s to leave the voice alone.
+# Our previous design ("one character grows into a mountain") had no support in the audio:
+# the intro is not empty, it is four layers arriving. Each layer now has a visible event.
+INTRO_LAYERS = [
+    # t, label, which layer becomes visible
+    (8.0, "VIOLIN", "entity"),    # a single high sustained line
+    (20.0, "BAND", "rain"),       # drums + guitar: the first hit, rain starts
+    (36.0, "PIANO", "flower"),    # piano enters: the first bloom appears
+    (48.0, "GUITAR", "spiral"),   # electric guitar: the loudest stacking
+    (64.0, "VOICE", None),        # everything drops; the machine waits for the voice
+]
+
+
+def intro_layer(t: float) -> float:
+    """How many of the four layers have arrived (0..4)."""
+    return sum(1 for lt, _, _ in INTRO_LAYERS if t >= lt)
+
+
 SECTIONS = [
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
     ("intro", 0.0, 67.85, 0.00, 0.00, 0.00, 0.00, 0.00, 0.0, 0.55, 0.72, 1),
@@ -94,10 +116,51 @@ def rms_at(t: float) -> float:
 
 
 def section_at(t: float):
+    """The design section for t. The interlude resolves to its named movement, so the picture
+    can follow the instrument that is playing rather than a single 124-second block."""
+    if 122.0 <= t < 245.79:
+        for s in BREAK_SECTIONS:
+            if s[1] <= t < s[2]:
+                return s
     for s in SECTIONS:
         if s[1] <= t < s[2]:
             return s
     return SECTIONS[-1]
+
+
+# ---- the 124-second interlude, in six named movements ------------------------
+# This was the single most-missing piece of the design (plan/18 §5.3): the interlude used to
+# be one flat "break" with an abstract energy curve. The analysis video names the instruments
+# movement by movement and the stem table (plan/18 §6) matches it window for window, so each
+# movement can now be designed around an instrument instead of around an energy level.
+#
+#   window     OCR caption (B站解析)                  stems (dBFS)            design
+#   122-146    full band, brightest                  drums -27.6 bass -25.7  the loudest, everything on
+#   147-162    "细小的钢琴声…像巴赫的巴洛克"          only other -39.3        almost dark: one thin line
+#   162-190    "小提琴与钢琴交互进行"                 only other -30.8        two lines trading
+#   190-212    "贝斯清晰可闻，电吉他以不同方式咆哮"   bass -31.7 drums -34.2  bass visible again
+#   212-230    "电吉他尽情咆哮"                       drums -25.3 (loudest)   full-on, beat drives it
+#   230-245.79 同上（人声轨空）                       drums -25.5             same, thinning to B②
+BREAK_SECTIONS = [
+    # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
+    ("break1", 122.00, 146.5, 0.30, 0.00, 0.55, 0.55, 0.00, 0.3, 0.90, 0.72, 1),
+    ("break2", 146.5, 162.0, 0.20, 0.10, 0.30, 0.00, 0.00, 0.0, 0.30, 0.72, 1),
+    ("break3", 162.0, 190.0, 0.25, 0.05, 0.40, 0.00, 0.00, 0.0, 0.40, 0.60, 1),
+    ("break4", 190.0, 212.0, 0.30, 0.00, 0.45, 0.00, 0.00, 0.0, 0.55, 0.78, 1),
+    ("break5", 212.0, 230.0, 0.35, 0.00, 0.55, 0.45, 0.00, 0.4, 1.00, 0.72, 1),
+    ("break6", 230.0, 245.79, 0.30, 0.00, 0.50, 0.35, 0.00, 0.2, 0.90, 0.72, 1),
+]
+
+# the framing of each movement: a different camera, not a different filter (plan/03 §2.1)
+# (ridge offset px, ridge scale multiplier, floor line: 0=high horizon, 1=low)
+BREAK_CAMERA = {
+    "break1": (0.0, 1.00, 0.62),
+    "break2": (0.0, 0.55, 0.42),   # almost empty: a single thin line, high in the frame
+    "break3": (-60.0, 0.70, 0.52),  # pans left, two lines trading
+    "break4": (40.0, 0.85, 0.66),   # comes back right, bass visible: low horizon
+    "break5": (0.0, 1.15, 0.70),    # full-on: the widest, tallest ridge
+    "break6": (-20.0, 0.95, 0.64),
+}
 
 
 def _line_end(line: dict) -> float:
@@ -247,6 +310,35 @@ def _normal(t: float):
             lyric = ("", "")
             pen = None
 
+    # ---- the intro: four instruments light up one at a time --------------------
+    # 0-8 s nothing but the machine and a dark world (the disc has just gone in)
+    # 8 s   violin alone          -> the light column appears
+    # 20 s  drums + guitar hit    -> rain begins
+    # 36 s  piano enters          -> the pot appears
+    # 48 s  electric guitar       -> the rays; the loudest stacking of the intro
+    # 64 s  everything drops      -> all four go quiet, the machine waits for the voice
+    intro_extra = {}
+    if t < 67.85:
+        n = intro_layer(t)
+        ramp = lambda k: min(1.0, max(0.0, (t - (INTRO_LAYERS[k][0] - 0.6)) / 1.2))
+        intro_extra = {
+            "entity": 0.62 * ramp(0) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
+            "rain": 0.30 * ramp(1) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
+            "flower": 0.52 * ramp(2) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
+            "spiral": 0.55 * ramp(3) * (1.0 if t < 64.0 else max(0.0, 1 - (t - 64) / 3.0)),
+            "w_terrain": 0.35 + 0.65 * ramp(1),
+        }
+        entity = intro_extra["entity"]
+        rain = intro_extra["rain"]
+        flower = intro_extra["flower"]
+        spiral = intro_extra["spiral"]
+    w_terrain = intro_extra.get("w_terrain", 1.0)
+
+    # ---- the interlude: each movement gets its own framing ----------------------
+    cam = BREAK_CAMERA.get(_id)
+    if cam:
+        w_terrain = min(w_terrain, 0.92)
+
     return preview.compose(
         t,
         boot=1.0 if t >= 8.0 else max(0.12, t / 8.0),
@@ -266,6 +358,8 @@ def _normal(t: float):
         pen=pen,
         pen_times=(cur.get("times") if (cur and not rw and lyric[0]) else None),
         big_b1=(b1_big, b1_alpha) if b1_big else None,
+        w_terrain=w_terrain,
+        camera=cam,
     )
 
 
