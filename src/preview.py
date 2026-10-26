@@ -755,6 +755,11 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
         state = "LIVE" if (u >= 1.0 and t < 64.0) else ("IDLE" if t >= 64.0 else "LOCK")
         img = crt.boot_panel(img, rect, t, u, title, rows(), dim=dim, seed=i, state=state)
 
+    # ---- waiting for the voice -------------------------------------------------------------
+    # The fill completes before the first line: the music drops at 64 s and the singer has not
+    # come in yet. That gap is not dead time — it is the machine having finished preparing and
+    # standing ready. So the read-outs freeze on their last values, the log prints WAITING, and
+    # a cursor blinks. Motion stops; the machine does not.
     # ---- the cell fill: the frame is covered on the music, not faded in -------------------
     # From FILL_START the whole interface (all of the machine's modules, its read-outs, and the
     # world's first horizon) is what the fill is spreading. Each cell arrives on a measured
@@ -763,6 +768,10 @@ def intro_modules(img: Image.Image, t: float, frame_no: int) -> Image.Image:
     if t >= FILL_START:
         full = _intro_full_frame(t, frame_no)
         img = intro_fill.fill(full, t, INTRO_ONSETS, mode="radial", started=FILL_START)
+    # The waiting state is an OVERLAY on top of the fill, never a replacement: the fill does not
+    # reach 100% until 67.85, so swapping the frame here would leave the last cells never filled.
+    if t >= WAIT_AT:
+        img = _intro_waiting(img, t)
     return img
 
 
@@ -876,6 +885,57 @@ def _draw_disc(dl, cx, cy, r, revs, blur, dim=1.0, ax=None):
                fill=(30, 24, 14), outline=fade(AMBER, 0.4 * dim))
     dl.ellipse([cx - r * 0.055, cy - r * 0.055, cx + r * 0.055, cy + r * 0.055],
                fill=fade(AMBER, 0.55 * dim))
+
+
+WAIT_AT = 63.4
+
+
+def _intro_waiting(img: Image.Image, t: float) -> Image.Image:
+    """64-67.85 s: everything is ready, nobody is singing.
+
+    The last module read-outs are frozen at their 63.4 s values; the SYSLOG keeps printing
+    (a machine that stopped logging would be a machine that died); and the cursor blinks on the
+    empty lyric band, which is exactly the gesture the film ends on 5 minutes later. First and
+    last shot rhyme: a cursor waiting for someone to write.
+    """
+    import scene
+    d = ImageDraw.Draw(img)
+    L = LEFT
+    hold = 63.4
+    u = min(1.0, (t - WAIT_AT) / 0.7)
+
+    # a slim status band replaces the module stack's bottom edge
+    y0 = L[1] + 196
+    d.line([(L[0] + 10, y0 - 8), (L[2] - 10, y0 - 8)], fill=fade(AMBER, 0.22))
+    tk.text(d, (L[0] + 12, y0), "READY", font(tk.MONO, 9), GREEN, 0.85 * u)
+    tk.text(d, (L[0] + 70, y0), "WAITING FOR VOCAL", font(tk.MONO, 9), AMBER, 0.72 * u)
+
+    # the log keeps arriving: one line per beat, deterministic on t
+    n_wait = int((t - WAIT_AT) / 0.55)
+    for k in range(max(0, n_wait - 2), n_wait + 1):
+        if k < 0:
+            continue
+        age = t - (WAIT_AT + k * 0.55)
+        if age < 0:
+            continue
+        s_ = ["STANDBY", "INPUT  --", "NO VOCAL", "ARMED", "LISTEN"][k % 5]
+        txt = tk.decode(s_, age, seed=9000 + k, rate=60.0, settle=0.10)
+        tk.text(d, (L[0] + 12, y0 + 16 + (k - max(0, n_wait - 2)) * 14), txt,
+                font(tk.MONO, 9), AMBER, 0.30 + 0.45 * min(1.0, age * 5))
+
+    # the cursor: on the lyric band, blinking, waiting for the first word
+    cy = L[1] + 232
+    if (t * 1.8) % 1.0 < 0.55:
+        d.rectangle([L[0] + 16, cy, L[0] + 30, cy + 22], fill=fade(BLUE_HI, 0.85 * u))
+    tk.text(d, (L[0] + 38, cy + 4), "", font(tk.CJK, 20), BLUE_HI, 0.4)
+
+    # the world holds its last reading: the column stops breathing, the mountain settles
+    R = RIGHT
+    v = scene.level_at(hold)
+    d.line([(R[0] + 8, R[3] - 30), (R[0] + 8 + int(300 * min(1.0, v)), R[3] - 30)],
+           fill=fade(BLUE_HI, 0.35))
+    tk.text(d, (R[0] + 14, R[3] - 46), "SIGNAL HOLD", font(tk.MONO, 8), BLUE_HI, 0.40 * u)
+    return img
 
 
 def intro_scene(t: float):
