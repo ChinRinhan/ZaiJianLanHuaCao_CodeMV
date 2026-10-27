@@ -1766,9 +1766,18 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
         f = font(tk.MONO_B, 12)
         tw = d.textlength(lab, font=f)
         bxx = ex + 74
-        d.rectangle([bxx - 8, mid - 22, bxx + tw + 8, mid - 2],
+        # 徽章要**躲开向右扇出的光缆**：原来它固定在 mid−22..mid−2，正好压住向上那股
+        # （审计 2026-10-27 23:5x：8x 放大能看到缆线在徽章下方断开约 150 px）。
+        # 光缆最高一股的抬升 = |CHORUS_CABLE|·h·3.4，按徽章**右边缘**所在的比例算，
+        # 再往上让 8 px——这样换构图也不会再压住。
+        span = max(1.0, gx1 - ex)
+        f_r = min(1.0, max(0.0, (bxx + tw + 8 - ex) / span))
+        rise = abs(min(CHORUS_CABLE)) * h * 3.4 * f_r
+        by1 = mid - rise - 8
+        by0 = by1 - 20
+        d.rectangle([bxx - 8, by0, bxx + tw + 8, by1],
                     fill=fade((2, 3, 8), 0.80 * ga * a))
-        d.text((bxx, mid - 19), lab, font=f, fill=fade((255, 246, 224), 0.95 * ga * a))
+        d.text((bxx, by0 + 3), lab, font=f, fill=fade((255, 246, 224), 0.95 * ga * a))
 
     # --- 右上角：这一句几个人在唱 + 歌词 --------------------------------------
     fv = font(tk.MONO, 9)
