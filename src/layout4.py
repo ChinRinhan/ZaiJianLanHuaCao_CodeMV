@@ -160,6 +160,38 @@ def _dim_zone(dst: Image.Image, rect, k: float) -> None:
               (x0, y0))
 
 
+def _light_zone(dst: Image.Image, rect, k: float, scan: float | None = None) -> None:
+    """把一个区从黑里**长出来**（上电：灯一盏一盏亮）。
+
+    `_dim_zone` 的反面：B② 结尾把五个区同时压黑，A② 开头要反过来——不是"一亮全亮"，
+    而是按区依次从黑里淡入。实测那一跳是全片最大的一次：**266.31 帧差 17.28**，
+    世界区平均亮度 6.1 → 33.3（一帧内 5.5 倍）。现在它变成 1.6 s 的五拍。
+
+    `scan` 是扫描线位置（0..1，区内的相对高度）：扫描线**以上**已经完全通电，
+    以下还在黑里——像 CRT 逐行点亮，而不是整块淡入。
+    """
+    x0, y0, x1, y1 = rect
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return
+    if scan is not None:
+        h = y1 - y0
+        cut = int(y0 + h * max(0.0, min(1.0, scan)))
+        if cut <= y0:
+            dst.paste(Image.new("RGB", (x1 - x0, h), (0, 0, 0)), (x0, y0))
+            return
+        if cut < y1:
+            lay = dst.crop((x0, cut, x1, y1))
+            dst.paste(Image.new("RGB", lay.size, (0, 0, 0)), (x0, cut))
+    if k >= 0.999:
+        return
+    if k <= 0.001:
+        dst.paste(Image.new("RGB", (x1 - x0, y1 - y0), (0, 0, 0)), (x0, y0))
+        return
+    lay = dst.crop((x0, y0, x1, y1))
+    dst.paste(Image.blend(Image.new("RGB", lay.size, (0, 0, 0)), lay, k), (x0, y0))
+
+
+
 def _reveal(parent: Image.Image, rect, u: float, draw) -> None:
     """Legacy CRT-aperture reveal — kept for the `mount ui/` macro gesture only."""
     if u <= 0.0:
@@ -1112,7 +1144,7 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
           log=None, paper_kw=None, old=None, cue=None, big=None, undo=None, times=None,
           boot=None, overload=0.0, glow=0.34, demand=None, cell=0.0, inst=None,
           cell_px: float = 0.0, status=None, dial=None, dim=None, chorus=None,
-          scoreline=None, chip_now=False, voices=None):
+          scoreline=None, chip_now=False, voices=None, power=None):
     z = zones(collapse, mode, cell, cell_px)
     img = Image.new("RGB", (W, H), BG)
 
@@ -1160,6 +1192,17 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
                          label=("SCORE // INTERLUDE" if scoreline else "LYRIC"),
                          score=scoreline, chip=bool(chip_now)),
                   z["tokens"][:2])
+
+    # 上电：灯一盏一盏亮起来（A② 的入口）。必须在所有区都画完之后做——各区的淡入互相独立，
+    # 而且 token 带是最后 paste 的，它也要参与这一拍。
+    if power:
+        # scan = 上电进度（0..1）：扫描线以上已经通电，以下还在黑里
+        sc = power.get("scan")
+        _light_zone(img, (0, 0, W, HEAD_H), float(power.get("header", 1.0)))
+        _light_zone(img, z["entity"], float(power.get("entity", 1.0)))
+        _light_zone(img, z["content"], float(power.get("content", 1.0)), scan=sc)
+        _light_zone(img, z["ops"], float(power.get("ops", 1.0)))
+        # 底栏歌词带**不参与上电**：B② 的黑场里留的就是"只剩歌词"，歌没断。
 
     # standby: the machine goes dark and waits for the voice (64 s)
     idle = float((boot or {}).get("idle", 0.0))

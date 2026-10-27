@@ -986,6 +986,72 @@ B2_CHOIR_T0, B2_CHOIR_DT = 265.10, 0.17       # 六格点名，一格 0.17 s
 B2_DEAD = 0.42          # 断电时长（10 帧）
 B2_BOOT = 1.15          # 自检 + 上电
 
+# ---- 04:26.31 的出口：灯一盏一盏亮起来 -------------------------------------------------
+# B② 结尾把五个区同时压黑，A② 开头原本是一帧之内全部亮起——**全片最大的一次跳变**：
+# 实测 266.31 帧差 17.28（世界区平均亮度 6.1 → 33.3，一帧内 5.5 倍）。
+# 现在改成一台上电：各区依次从黑里长出来，1.25 s，五拍。
+#
+# 顺序是"机器先醒，画面后醒"：
+#   1  实体列  CD 机——机器回来了
+#   2  顶栏    LASER KARAOKE 抬头
+#   3  右列    仪表开始跳
+#   4  世界    山谷被推出来
+#
+# **底栏歌词带不上电**：B② 结尾黑场里留的就是"只剩歌词"（导演 07:2x：「一起都灭掉…留在
+# 画面上的只有歌词、表盘和那张点名册」），歌没有断，所以底栏必须一直亮着。
+# 让它灭一下再亮，等于把歌掐断。
+#
+# 和 04:05 那次断电→自检是同一套语法（这台机器的上下场都是"上电/下电"），但方向相反。
+A2_T0 = 266.31
+A2_POWER = (("entity", 0.00), ("header", 0.30), ("ops", 0.55),
+            ("content", 0.75))
+A2_POWER_TAIL = 0.55          # 每一盏灯自己的亮起时长
+
+
+def _power_on(img, t):
+    """A② 入口：上电的扫描线。
+
+    线不是装饰——它就是"通电到哪儿了"。各区的淡入（`layout4._light_zone`）由 `_a2_power`
+    给出，这条线是它的可见版本：线扫过的地方，机器才真的醒。
+    04:05 那次是断电（线没了），这里是上电（线回来了）——同一台机器的上下场。
+
+    线的**位置**和"已经上电的比例"必须同步：第一版里线走完了、世界还在淡入，
+    两者对不上，像两件事。现在线走到哪，就是通电到哪。
+    """
+    span = A2_POWER[-1][1] + A2_POWER_TAIL
+    u = max(0.0, min(1.0, (t - A2_T0) / span))
+    W, H = img.size
+    d = ImageDraw.Draw(img)
+    # 扫描线：从上往下。线 = 已通电的比例，所以它和世界显影的进度是同一件事。
+    cy = int(H * u)
+    if 0 <= cy < H:
+        d.line([(0, cy), (W, cy)], fill=fade((255, 246, 224), 0.85), width=2)
+        for k in (1, 2, 3, 5):
+            a = 0.13 / (k * 0.9)
+            d.line([(0, cy - k * 3), (W, cy - k * 3)], fill=fade(AMBER, a))
+            d.line([(0, cy + k * 3), (W, cy + k * 3)], fill=fade(AMBER, a))
+    # 上电完成前，机器在报自己的状态
+    if u < 0.96:
+        d.text((W // 2 - 74, 16), "SYSTEM POWER ON", font=font(tk.MONO, 10),
+               fill=fade((255, 196, 120), 0.70))
+    return img
+
+
+def _a2_power(t):
+    """A② 入口的分区亮起权重（None = 不在入口段）。
+
+    `scan` 是上电进度：世界区按它从上往下逐行通电（CRT 的行为），而不是整块淡入。
+    """
+    if not (A2_T0 <= t < A2_T0 + A2_POWER[-1][1] + A2_POWER_TAIL):
+        return None
+    out = {}
+    for key, t0 in A2_POWER:
+        u = (t - A2_T0 - t0) / A2_POWER_TAIL
+        out[key] = _smooth(max(0.0, min(1.0, u)))
+    out["scan"] = max(0.0, min(1.0, (t - A2_T0) /
+                               (A2_POWER[-1][1] + A2_POWER_TAIL)))
+    return out
+
 
 def _power_entry(img, t):
     """B② 的入口画面：断电 / 自检上电。只作用于 04:05.79 之后的 ~1.6 s。"""
@@ -1338,6 +1404,7 @@ def _body(t: float) -> Image.Image:
         chip_now=_countdown(t) is not None,
         glow=0.30 + 0.16 * _rise(t),
         dim=dim, chorus=b2, scoreline=sc, voices=b2_voices,
+        power=_a2_power(t),
         log=_console_for(t) if boot is not None else None)
     # B②：回执 + 入口断电/上电。两层都画在合成之后——它们属于"机器的界面"，
     # 不该被世界/列自己的 alpha 稀释（回执自己按 drain 淡出，断电是硬切）。
@@ -1345,6 +1412,9 @@ def _body(t: float) -> Image.Image:
         img = _receipt(img, t, b2, layout4.zones(collapse, "W", 0.0))
         if t < B2_T0 + B2_DEAD + B2_BOOT:
             img = _power_entry(img, t)
+    # A② 的入口：灯一盏一盏亮起来之后，那条上电的扫描线还要再走一遍
+    if A2_T0 <= t < A2_T0 + A2_POWER[-1][1] + A2_POWER_TAIL:
+        img = _power_on(img, t)
     return img
 
 
