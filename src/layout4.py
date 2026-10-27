@@ -1145,7 +1145,8 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
                                       alpha=inst.get("alpha", 1.0),
                                       sub=inst.get("sub", ""),
                                       strum=inst.get("strum", -1.0),
-                                      solo=inst.get("solo"))
+                                      solo=inst.get("solo"),
+                                      weights=inst.get("weights"))
 
     # `mount ui/` opens the whole workbench through one CRT aperture. The console (token
     # band) is drawn AFTER, always lit — the command that caused the mount must stay

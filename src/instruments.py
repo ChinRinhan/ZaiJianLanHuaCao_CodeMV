@@ -369,7 +369,7 @@ def _grid_track(d, box, t, onsets, alpha, steps: int = 16):
 
 
 def cellpanel(img: Image.Image, box, t: float, *, tracks, alpha: float = 1.0, sub: str = "",
-              strum: float = -1.0, solo: str | None = None):
+              strum: float = -1.0, solo: str | None = None, weights=None):
     """The carved instrument column — 器乐格.
 
     导演 (2026-10-27 03:10): 不画乐器，画它的代码形态。03:17: 格子太大在 99.30 转场时会
@@ -392,11 +392,28 @@ def cellpanel(img: Image.Image, box, t: float, *, tracks, alpha: float = 1.0, su
     ttop = y0 + 10
     tbot = y1 - 8
     gap = 7
-    th = (tbot - ttop - gap * (n - 1)) / n
+    # 轨道高度默认等分；`weights` 可以让一条轨道"长开"——间奏的独奏段就是把空着的
+    # VOX 轨借出去，长成一个弹出的小窗口（导演 10:1x：「VOX 栏可以替换掉」，
+    # 手法要像倒计时那条窗口：切开、撑开、用完整段再收回去）。
+    ws = [float(w) for w in (weights or [1.0] * n)]
+    if len(ws) != n:
+        ws = [1.0] * n
+    avail = tbot - ttop - gap * (n - 1)
+    tot = sum(ws) or 1.0
     f = font(tk.MONO_B, 9)
+    ycur = ttop
     for i, (name, kind, payload) in enumerate(tracks):
-        ty0 = ttop + i * (th + gap)
-        ty1 = ty0 + th
+        hgt = avail * ws[i] / tot
+        ty0 = int(round(ycur))
+        ty1 = int(round(ycur + hgt))
+        ycur = ty1 + gap
+        if ws[i] > 1.25:
+            # 这条轨已经"弹开"了：先给它一层自己的底和边框，读起来是一个窗口而不是一条长轨
+            _r = {"WALK": "%d STEPS" % len(payload.get("notes") or []),
+                  "PINS": "%d HITS" % len(payload.get("hits") or [])}.get(kind, "")
+            _panel(img, (x0 + 2, ty0 - 5, x1 - 2, ty1 + 2), AMBER, alpha,
+                   title="SOLO", right=_r)
+            d = ImageDraw.Draw(img)
         # the chair's name and its level, on the track's own line
         d.line([(x0 + 4, ty0 - 3), (x1 - 4, ty0 - 3)], fill=fade(AMBER, 0.16 * alpha))
         tk.text(d, (x0 + 5, ty0 + 1), name, f, AMBER,
@@ -420,6 +437,14 @@ def cellpanel(img: Image.Image, box, t: float, *, tracks, alpha: float = 1.0, su
             _curve_track(d, body, t, payload["onsets"], alpha)
         elif kind == "COL":
             _col_track(d, body, t, payload["level"], alpha)
+        elif kind == "WALK":
+            _walk_grid(img, body, t, payload.get("notes") or [],
+                       t0=payload.get("t0", 0.0), t1=payload.get("t1", 1.0),
+                       lo=40, hi=60, alpha=alpha, chrome=False)
+        elif kind == "PINS":
+            _pin_wall(img, body, t, payload.get("hits") or [],
+                      t0=payload.get("t0", 0.0), t1=payload.get("t1", 1.0),
+                      alpha=alpha, chrome=False)
     if 0.0 <= strum <= 1.0:
         xx = x0 + 4 + (x1 - x0 - 8) * strum
         d.line([(xx, ttop), (xx, tbot)], fill=fade((255, 246, 224), 0.9 * alpha), width=2)
@@ -806,8 +831,24 @@ def _string_line(img, box, t, notes, *, lo: int, hi: int, lead: float = 3.0,
 
 
 # ---------------------------------------------------------------- the bass walks
+def _edge(t: float, t0: float, t1: float, fade: float = 1.2) -> float:
+    """Window alpha for a stage: smooth in AND out, anchored **on** its own boundaries.
+
+    第一版把淡入区间写成"段头前 1.2 s 开始"（贝斯 188.8→190.0）。这是无效的：`stage()` 只有
+    在这段成为当前段（≥190.0）时才被调用，所以那段淡入根本没人看见——面板在边界的**那一帧**
+    以 alpha=1.0 直接出现。实测 190.000 帧差 8.53，平时中位 2.31（3.7×），且集中在世界区。
+    淡入必须从 t0 起算，淡出必须在 t1 收完。
+    """
+    if t < t0 or t >= t1:
+        return 0.0
+    a = min(1.0, (t - t0) / max(1e-6, fade))
+    b = min(1.0, (t1 - t) / max(1e-6, fade))
+    s = lambda x: x * x * (3 - 2 * x)
+    return s(a) * s(b)
+
+
 def _walk_grid(img, box, t, notes, *, t0: float, t1: float, lo: int = 38, hi: int = 62,
-               span: float = 6.0, alpha: float = 1.0):
+               span: float = 6.0, alpha: float = 1.0, chrome: bool = True):
     """贝斯段（3:10–3:32）的放大视图：把地面上那条"横着走"放大成一张走格。
 
     横向是时间（近 6 s 一直往左推），纵向是音高行。贝斯不敲、不跳，它**踱**：每个音是同一行
@@ -817,14 +858,16 @@ def _walk_grid(img, box, t, notes, *, t0: float, t1: float, lo: int = 38, hi: in
     if alpha <= 0.01 or not notes or t < t0 - 1.0:
         return
     x0, y0, x1, y1 = box
-    _panel(img, box, AMBER, alpha, title="BASS // WALK", right="%d STEPS" % len(notes))
+    if chrome:
+        _panel(img, box, AMBER, alpha, title="BASS // WALK", right="%d STEPS" % len(notes))
     d = ImageDraw.Draw(img)
-    ix0, iy0, ix1, iy1 = x0 + 10, y0 + 16, x1 - 10, y1 - 10
-    rows = max(1, hi - lo)
+    ix0, iy0, ix1, iy1 = x0 + 8, y0 + 16, x1 - 8, y1 - 8
+    step = 2                                   # 小卡里每行 2 个半音，读数才不挤成一团
+    rows = max(1, (hi - lo) // step)
     rh = (iy1 - iy0) / rows
-    for m in range(lo, hi + 1):
-        yy = iy1 - (m - lo) * rh
-        if m % 4 == 0:
+    for m in range(lo, hi + 1, step):
+        yy = iy1 - ((m - lo) // step) * rh
+        if m % 10 == 0:
             d.line([(ix0, yy), (ix1, yy)], fill=fade(BLUE_HI, 0.10 * alpha))
             d.text((ix0 + 2, yy - 7), "%d" % m, font=font(tk.MONO, 6),
                    fill=fade(BLUE_HI, 0.24 * alpha))
@@ -835,7 +878,8 @@ def _walk_grid(img, box, t, notes, *, t0: float, t1: float, lo: int = 38, hi: in
         return ix0 + (ix1 - ix0) * max(0.0, min(1.0, (tn - (t - span)) / span))
 
     def Y(m):
-        return iy1 - (max(lo, min(hi, m)) - lo) * rh
+        m = max(lo, min(hi, m))
+        return iy1 - ((m - lo) // step) * rh
 
     pts = [(X(n[0]), Y(n[1])) for n in win]
     if len(pts) >= 2:
@@ -851,7 +895,8 @@ def _walk_grid(img, box, t, notes, *, t0: float, t1: float, lo: int = 38, hi: in
 
 
 # ---------------------------------------------------------------- the last wave
-def _pin_wall(img, box, t, hits, *, t0: float, t1: float, alpha: float = 1.0):
+def _pin_wall(img, box, t, hits, *, t0: float, t1: float, alpha: float = 1.0,
+              chrome: bool = True):
     """最后一波（3:50–4:05.8）的放大视图：钉墙。
 
     先试过"峰值保持"（每小节取最大力度画条），量了才发现这一段**每一小节的最大力度都是
@@ -863,14 +908,14 @@ def _pin_wall(img, box, t, hits, *, t0: float, t1: float, alpha: float = 1.0):
         return
     x0, y0, x1, y1 = box
     seg = [h for h in hits if t0 <= h[0] < t1]
-    _panel(img, box, AMBER, alpha, title="LAST // PINNED", right="%d HITS" % len(seg))
+    if chrome:
+        _panel(img, box, AMBER, alpha, title="LAST // PINNED", right="%d HITS" % len(seg))
     d = ImageDraw.Draw(img)
-    ix0, iy0, ix1, iy1 = x0 + 10, y0 + 22, x1 - 10, y1 - 14
+    ix0, iy0, ix1, iy1 = x0 + 8, y0 + 20, x1 - 8, y1 - 8
     # 上下两条导轨：钉子从天花板钉到地板，两头都要有东西接着
     for yy in (iy0, iy1):
         d.line([(ix0, yy), (ix1, yy)], fill=fade(AMBER, 0.45 * alpha), width=1)
-    d.text((ix0 + 2, iy0 - 12), "CEIL", font=font(tk.MONO, 6), fill=fade(AMBER, 0.30 * alpha))
-    d.text((ix0 + 2, iy1 + 3), "FLOOR", font=font(tk.MONO, 6), fill=fade(AMBER, 0.30 * alpha))
+    d.text((ix0 + 2, iy0 - 9), "CEIL", font=font(tk.MONO, 6), fill=fade(AMBER, 0.30 * alpha))
     n = 0
     for (tn, _m, s) in seg:
         if tn > t:
@@ -878,18 +923,16 @@ def _pin_wall(img, box, t, hits, *, t0: float, t1: float, alpha: float = 1.0):
         n += 1
         x = ix0 + (ix1 - ix0) * (tn - t0) / (t1 - t0)
         a = (0.26 + 0.52 * s) * alpha
-        d.line([(x, iy0 + 1), (x, iy1 - 1)], fill=fade(AMBER, a), width=2)
-        d.ellipse([x - 2, iy0 + 1, x + 2, iy0 + 5], fill=fade(AMBER, min(1.0, a * 1.5)))
+        d.line([(x, iy0 + 1), (x, iy1 - 1)], fill=fade(AMBER, a), width=1)
+        d.ellipse([x - 1.5, iy0 + 1, x + 1.5, iy0 + 4], fill=fade(AMBER, min(1.0, a * 1.5)))
     # 钉子正在往下钉的那一列：钉头有个亮点，画面才知道"现在在哪儿"
     if n:
         xx = ix0 + (ix1 - ix0) * (min(t, t1) - t0) / (t1 - t0)
         d.line([(xx, iy0), (xx, iy1)], fill=fade((255, 246, 224), 0.22 * alpha), width=1)
     # 钉满 = PINNED（这一段没有"回落"这回事）
     if len(seg) and n >= 0.97 * len(seg):
-        d.text((ix1 - 46, y0 + 6), "PINNED", font=font(tk.MONO, 8),
+        d.text((ix1 - 44, y0 + 5), "PINNED", font=font(tk.MONO, 8),
                fill=fade((255, 110, 90), 0.95 * alpha))
-    d.text((ix1 - 96, y1 - 10), "DENSITY %3d/%3d" % (n, len(seg)), font=font(tk.MONO, 6),
-           fill=fade(AMBER, 0.34 * alpha))
 
 
 # ---------------------------------------------------------------- the whole stage
@@ -949,25 +992,17 @@ def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
             tail = [n for n in (alt or []) if t - 1.4 <= n[0] <= t + 0.5]
             _string_line(img, roll_box, t, tail, lo=lo, hi=hi, lead=3.0,
                          alpha=a_kb * max(0.0, ent))
-    elif kind == "bass":
-        # 3:10–3:32：贝斯段。地面那条小台阶放大成一张走格（同一套动作，放大到看得清）。
-        a_w = (max(0.0, min(1.0, (t - 188.8) / 1.2))
-               * (1.0 - max(0.0, min(1.0, (t - 211.4) / 1.2))))
-        _walk_grid(img, (KX0, y0 + 96, KX1, y0 + 392), t, bass or [],
-                   t0=190.0, t1=212.0, lo=40, hi=60, alpha=alpha * a_w)
-    elif kind == "last":
-        # 3:50–4:05.8：最后一波。钉墙——钉进去不拔，钉满就 PINNED。
-        a_l = (max(0.0, min(1.0, (t - 229.0) / 1.2))
-               * (1.0 - max(0.0, min(1.0, (t - 244.4) / 1.2))))
-        _pin_wall(img, (KX0, y0 + 96, KX1, y0 + 392), t, drum or [],
-                  t0=230.0, t1=245.79, alpha=alpha * a_l)
+    # 3:10–3:32 的贝斯读数 / 3:50–4:05.8 的钉墙读数，**不在世界里画**：
+    # 导演 10:1x：「钢琴退下之后应该一个小框展示 bass，而不是把中间遮住；要展示 bass
+    # 不是喧宾夺主」。它们搬到器乐列里那条空着的 VOX 轨上（cellpanel 的 WALK / PINS），
+    # 世界继续归山脊、阶梯和花盆。
 
     # the movement read-out, in the top strip: where we are, in machine words. The note
     # counter is the machine keeping score of what the band has played so far —
     # the only number in this shot that is allowed to climb.
     # Only the movements that own a stage print it: `boutro`/`roar` draw no cell here, and a
     # floating line of text with nothing under it reads as a rendering bug.
-    if kind in ("piano", "duet", "bass", "last"):
+    if kind in ("piano", "duet"):
         f = font(tk.MONO, 9)
         bi = clock.beat_index(t)
         mine = bass if kind == "bass" else (drum if kind == "last" else notes)

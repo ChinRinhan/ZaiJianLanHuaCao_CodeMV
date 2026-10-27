@@ -399,6 +399,7 @@ def _cell_state(t):
     if w <= 2.0:
         return None
     tracks = []
+    weights = None
     if t >= scene.B1_END:
         # ⑤-A: six lanes, always all six — a lane is a CHAIR, not a spotlight. The one that
         # is playing is brighter and its notation moves; the others stay as quiet rails, so
@@ -421,6 +422,23 @@ def _cell_state(t):
                  ("PNO", "ROLL", dict(onsets=score3.NOTES)),
                  fourth,
                  ("VOX", "COL", dict())]
+        # 第六把椅子是人声（VOX）。间奏全程人声为 0（MOVE_LIVE 六个段 VOX 全是 0.0，
+        # 只有 boutro 有 0.10 的残响），所以这 109 s 它是一条空轨——一条永远不亮的轨。
+        # 导演（10:1x）：「VOX 栏可以替换掉」。独奏段把这条空轨借出去，撑成一个小窗口，
+        # 放这一段主角的读数（手法同倒计时那条窗口：撑开、用完整段、再收回）。
+        sid_now = scene.section_at(t)[0]
+        solo_win = {"bass": (190.0, 212.0), "last": (230.0, 245.79)}.get(sid_now)
+        if solo_win:
+            grow = (_smooth(min(1.0, max(0.0, (t - solo_win[0]) / 0.6)))
+                    * _smooth(min(1.0, max(0.0, (solo_win[1] - t) / 0.6))))
+            if grow > 0.01:
+                if sid_now == "bass":
+                    lanes[-1] = ("BASS", "WALK",
+                                 dict(notes=score3.BASS, t0=190.0, t1=212.0))
+                else:
+                    lanes[-1] = ("GTR", "PINS",
+                                 dict(hits=score3.DRUM, t0=230.0, t1=245.79))
+                weights = [1.0] * (len(lanes) - 1) + [1.0 + 1.6 * grow]
         for name, kind, pay in lanes:
             # GTR2 与 VLN 是同一个声部在不同段落的名字，电平跟着 other 轨走
             lv = live.get(name, live.get("VLN", 0.0) if name == "GTR2" else 0.0)
@@ -445,7 +463,7 @@ def _cell_state(t):
             "alpha": min(1.0, w / 40.0),
             "sub": "A1" if t < scene.B1_END else scene.section_at(t)[0].upper(),
             "solo": None if t < scene.B1_END else MOVE_SOLO.get(scene.section_at(t)[0]),
-            "strum": strum}
+            "strum": strum, "weights": weights}
 
 
 # ---- the form: the four demands, and the fifth line that is never asked for ------
