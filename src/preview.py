@@ -767,13 +767,14 @@ def credits_frame(t: float):
         d.line([(64, 250), (700, 250)], fill=fade(AMBER, 0.18 * a1))
 
     # ---- 制作人员：人是一行，三个模型接在后面当 CH 07/08/09 --------------------
-    # 导演（01:1x）：「三个模型也是『制作人员』，上面应该给一栏」——所以这一栏的抬头是
-    # CREW，人排在第一位（OPERATOR，它的"标志"就是那个从 GAME SET 一路留到现在的光标块），
+    # 导演（01:1x）：「三个模型也是『制作人员』，上面应该给一栏」；导演（01:2x）选 D 案：
+    # 抬头用 **STAFF**——「STAFF 表确实是很老派」，而这部片子就是一台 1994 年的机器。
+    # 人排在第一位（OPERATOR，它的"标志"就是那个从 GAME SET 一路留到现在的光标块），
     # 三个模型是同一栏里的三条通道。
     hd = at(0.82)
     if hd > 0:
-        tk.text(d, (64, 268), "CREW", font(tk.MONO_B, 12), AMBER, 0.75 * hd)
-        tk.text(d, (128, 271), "制作人员", font(tk.CJK, 11), AMBER, 0.50 * hd)
+        tk.text(d, (64, 268), "STAFF", font(tk.MONO_B, 12), AMBER, 0.75 * hd)
+        tk.text(d, (140, 271), "制作人员", font(tk.CJK, 11), AMBER, 0.50 * hd)
 
     rows = (("operator", None, "OPERATOR", "RedStar_ChinRinhan"),) +            tuple(("model", m, ch, nm) for (m, ch, nm) in _ROWS)
 
