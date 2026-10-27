@@ -1664,6 +1664,10 @@ def _chorus_roster(img: Image.Image, rect, st) -> None:
     d.line([(rx0, ry + 28), (x1 - 20, ry + 28)], fill=fade(AMBER, 0.22 * a))
 
 
+CHORUS_GATHER_X = 0.62          # 汇聚点在世界区宽度的百分之几处
+CHORUS_CABLE = (0.000, 0.009, 0.018, -0.018, -0.009, -0.000)  # 光缆六股（×世界高度）
+
+
 def _chorus_converge(img: Image.Image, rect, st) -> None:
     """A②/A③/A④ 的合唱：几条声部收敛成一条。
 
@@ -1701,7 +1705,7 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
     # 线从画外进来、收拢点靠左：世界在播放台滑出后从画面最左边开始，线要走半张画面才收拢
     # 的话，路上那段是淡的，等于看不见——所以路要短，收拢要早。
     sx = x0 - 40
-    ex = x0 + w * 0.46
+    ex = x0 + w * CHORUS_GATHER_X
 
     def _bez(p0, p1, p2, p3, n=44):
         pts = []
@@ -1742,15 +1746,19 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
         _ribbon(img, pts, col, half=half, core=0.40, alpha=va, hot=hot)
         # 行波：每个字发出一道亮波，沿光带流向汇聚点。声音从嘴里出来、汇到同一点。
         # 用**宽而软**的一段，不是一根白条——白条读成"一条白线"，软波才读成"一道光在走"。
-        wstr = float(st.get("wave_str", 0.0))
-        if wstr > 0.03:
-            wpos = float(st.get("wave_pos", 0.0))
+        for wv in (st.get("waves") or ()):
+            bpos = float(wv.get("band", -1.0))
+            if bpos < 0.0:
+                continue
+            bstr = float(wv.get("band_s", 0.0))
+            if bstr <= 0.03:
+                continue
             n_pts = len(pts)
-            c = int(wpos * (n_pts - 1))
+            c = int(bpos * (n_pts - 1))
             lo, hi = max(0, c - 5), min(n_pts - 1, c + 5)
             if hi - lo >= 2:
                 _ribbon(img, pts[lo:hi + 1], col, half=half * 1.8, core=0.30,
-                        alpha=0.55 * wstr * a, hot=(255, 252, 240), hot_frac=0.30)
+                        alpha=0.55 * bstr * a, hot=(255, 252, 240), hot_frac=0.30)
 
         d.ellipse([head[0] - 4, head[1] - 4, head[0] + 4, head[1] + 4],
                   fill=fade(col, min(1.0, va + 0.30)))
@@ -1767,27 +1775,64 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
         d.text((lx, ly - 5), "V%d" % (i + 1), font=font(tk.MONO, 8),
                fill=fade(col, a * (0.75 * (1.0 - g) + 0.25)))
 
-    # the gathered voice: one line, solid, and the number we measured
-    if g > 0.50:
-        ga = (g - 0.50) / 0.50
-        # 收成一条时带宽也要涨：那不再是一个声部，是六个人叠在一起的**一根光柱**。
-        # 光柱也跟着字脉动、也跟着那一句的响度变粗——"六个人同时唱"这件事要在
-        # 这根柱子上看得见，否则它只是一条静止的横线。
+    # 光柱（"一个人唱出去"）。**不门控**：以前写 `if g > 0.50`，于是每句的前 40% 时间
+    # （还没收拢）光柱根本不存在，右边就是全空——导演（23:02）看到的就是这个。
+    # 现在它从头就在，只是淡；收拢时变亮变粗。这样"右边"从句子第一帧起就有东西。
+    if a > 0.02:
+        ga = max(0.0, (g - 0.50) / 0.50)
         lvl = float(st.get("level", 0.5))
         puls = float(st.get("pulse", 0.0))
         beam_hot = mix((255, 224, 170), (255, 255, 255), 0.4 + 0.6 * puls)
-        _ribbon(img, [(ex, mid), (x0 + w * 0.92, mid)], AMBER,
-                half=(1.8 + 3.4 * ga) * (0.85 + 0.45 * lvl),
-                core=0.44, alpha=0.95 * ga * a, hot=beam_hot, hot_frac=0.34)
+        bx0, bx1 = ex, x0 + w * 0.92
+        beam_half = (2.6 + 3.6 * ga) * (0.85 + 0.45 * lvl)
+        # 可见度：散开时 0.30（淡着在那儿），收拢后到 1.0
+        bvis = 0.50 + 0.50 * tk.ease(max(0.0, min(1.0, (g - 0.10) / 0.60)))
+        # 光柱不是一根线，是**一束六股**：六个人收拢之后仍然看得出是六个人。
+        # 导演（23:02）：「整个画面右边还是空的」——一根静止的细线横穿 600 px 撑不住画面，
+        # 而且"六个人变成一个"也不是事实：他们只是唱同一个音。六股并行、微微散开，
+        # 右边就有了六条在流的光，隐喻反而更准（不是变成一根线，是变成一束缆）。
+        strand_half = max(1.2, beam_half * 0.30)
+        for si in range(6):
+            if si >= nv:
+                break
+            off = CHORUS_CABLE[si] * h
+            pa = (bx0, mid + off * 0.15)
+            pb = (bx1, mid + off * 3.4)
+            _ribbon(img, [pa, pb], AMBER if si % 2 == 0 else BLUE_HI,
+                    half=strand_half, core=0.40, alpha=0.92 * bvis * a,
+                    hot=beam_hot, hot_frac=0.30)
+        # 主光柱在最底下垫一层：让六股合成一个整体，不至于散成六根独立的线
+        _ribbon(img, [(bx0, mid), (bx1, mid)], AMBER,
+                half=beam_half * 1.25, core=0.46, alpha=0.42 * bvis * a,
+                hot=beam_hot, hot_frac=0.40)
         # 汇聚点：每个字砸下来时，那里爆一下 —— 这是"六个人收到了一起"的那一下
+        # 行波走过汇聚点后**继续沿光柱流出去**：声音收成一条之后要唱出去，
+        # 否则右边就是一整片死的空白（导演 23:02：「整个画面右边还是空的」）。
+        for wv in (st.get("waves") or ()):
+            bpos = float(wv.get("beam", -1.0))
+            if bpos < 0.0:
+                continue
+            bstr = float(wv.get("beam_s", 0.0))
+            if bstr <= 0.03:
+                continue
+            cx = bx0 + (bx1 - bx0) * bpos
+            lo = max(bx0, cx - 46)
+            hi = min(bx1, cx + 46)
+            if hi - lo >= 4:
+                _ribbon(img, [(lo, mid), (hi, mid)], AMBER,
+                        half=beam_half * 1.7, core=0.30,
+                        alpha=0.60 * bstr * ga * a,
+                        hot=(255, 252, 240), hot_frac=0.30)
         if puls > 0.03:
-            r = 6 + 16 * puls * ga
+            r = 6 + 16 * puls * max(ga, 0.25)
             d.ellipse([ex - r, mid - r, ex + r, mid + r],
-                      fill=fade((255, 250, 236), 0.55 * puls * ga * a))
+                      fill=fade((255, 250, 236), 0.55 * puls * max(ga, 0.25) * a))
             d.ellipse([ex - r * 0.45, mid - r * 0.45, ex + r * 0.45, mid + r * 0.45],
-                      fill=fade((255, 255, 255), 0.80 * puls * ga * a))
-        f = font(tk.MONO_B, 11)
-        d.text((ex + 12, mid - 14), "WE", font=f, fill=fade(AMBER, 0.95 * ga * a))
+                      fill=fade((255, 255, 255), 0.80 * puls * max(ga, 0.25) * a))
+        # "WE" 只在真的收拢之后才写：散开时还没有"一个声音"可言
+        if g > 0.50:
+            f = font(tk.MONO_B, 11)
+            d.text((ex + 12, mid - 14), "WE", font=f, fill=fade(AMBER, 0.95 * ga * a))
     if g > 0.68:
         ga = (g - 0.68) / 0.32
         lab = "cos(v1..v%d) = %.3f" % (nv, float(st.get("cos", 0.0)))

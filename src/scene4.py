@@ -1189,7 +1189,7 @@ def _chorus_state(t):
             # 换气的空隙：没有字在唱，所以没有脉动、没有行波；粗细保持上一句的。
             "pulse": 0.0,
             "level": max(0.0, min(1.0, (float(prev["rel_db"]) + 7.0) / 10.0)),
-            "wave_pos": 0.0, "wave_str": 0.0}
+            "waves": []}
 
 
 # 六人点名：A② 一开口就逐个点亮（导演拍板「点名应该在 A② 的头一句上点完」）。
@@ -1210,20 +1210,44 @@ ROSTER_STEP = 0.22                       # 每格间隔：1.32 s 点完六个
 # 3. **行波**（wave）：每个字起音发出一道亮波，从画外沿光带**流向汇聚点**。
 #    声音从人嘴里出来、汇到同一点 —— 这是"收敛"这个动作真正该有的动感。
 PULSE_DECAY = 0.17                       # 一个字的光衰时长（秒）
-WAVE_TRAVEL = 0.42                       # 一道波从起点走到汇聚点的时间
+# 一道波**扫完整个手势**：从画外左缘 → 汇聚点 → 沿光柱唱出去，一次走完。
+# 之前分成两段（带子 0.42 s + 光柱 0.30 s = 0.72 s），而字与字之间只有 0.27–0.46 s，
+# 所以光柱那一段几乎永远走不完——右边还是死的。合成一次 0.50 s 的全程扫描才对得上字的节奏。
+WAVE_TOTAL = 0.50
+WAVE_BAND_END = 0.62                     # 前 62% 走带子，后 38% 走光柱
+WAVE_TRAIL = 4                           # 同时画几道波（留轨迹）
 
 
 def _chorus_dynamics(t: float, t0: float, t1: float, rel: float):
-    """Pulse / thickness / travelling wave, all driven by measured data."""
+    """Pulse / thickness / travelling waves, all driven by measured data."""
     # --- level: 实测响度 → 0..1。全片合唱段实测区间是 −6.9 ~ +3.2 dB。
     level = max(0.0, min(1.0, (float(rel) + 7.0) / 10.0))
 
-    # --- pulse: 最近一个字起音之后多久了
     onsets = voices.char_onsets(t0)
     pulse = 0.0
-    wave_pos, wave_str = 0.0, 0.0
+    waves = []
     if onsets:
-        # the last onset at or before t
+        # every onset still inside the sweep window gets drawn — the older ones dimmer.
+        # A single wave left the right half looking empty between syllables; a short
+        # trail of the last few makes the beam read as a continuous flow of sound.
+        for o in reversed(onsets):
+            if o > t:
+                continue
+            age = t - o
+            if age > WAVE_TOTAL:
+                break
+            p = age / WAVE_TOTAL
+            if p <= WAVE_BAND_END:
+                bp = p / WAVE_BAND_END
+                waves.append({"band": bp, "band_s": (1.0 - bp) ** 0.7,
+                              "beam": -1.0, "beam_s": 0.0})
+            else:
+                mp = (p - WAVE_BAND_END) / (1.0 - WAVE_BAND_END)
+                waves.append({"band": -1.0, "band_s": 0.0,
+                              "beam": mp, "beam_s": (1.0 - mp) ** 0.6})
+            if len(waves) >= WAVE_TRAIL:
+                break
+        # the pulse belongs to the most recent onset only
         last = None
         for o in onsets:
             if o <= t:
@@ -1233,14 +1257,8 @@ def _chorus_dynamics(t: float, t0: float, t1: float, rel: float):
         if last is not None:
             age = t - last
             if age <= PULSE_DECAY:
-                # sharp attack, smooth decay: the syllable lands, then the light fades
                 pulse = (1.0 - age / PULSE_DECAY) ** 1.4
-            # the travelling wave: starts at the left edge, reaches the gather point
-            if age <= WAVE_TRAVEL:
-                wave_pos = min(1.0, age / WAVE_TRAVEL)
-                wave_str = (1.0 - wave_pos) ** 0.8
-    return {"pulse": pulse, "level": level,
-            "wave_pos": wave_pos, "wave_str": wave_str}
+    return {"pulse": pulse, "level": level, "waves": waves}
 
 
 def _roster_state(t: float, nv: int):
