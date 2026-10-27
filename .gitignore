@@ -25,3 +25,6 @@ tools/*.dll
 input/*.flac
 input/*.mp3
 input/*.lrc
+
+# 施工日志（每天的工作记录）不进仓库：
+.workbuddy/
