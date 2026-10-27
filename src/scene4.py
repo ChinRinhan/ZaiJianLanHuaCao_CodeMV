@@ -1572,7 +1572,7 @@ def _cut_shutter(t: float):
 POFF_T0, POFF_LINE = 386.46, 386.94
 POFF_DOT, POFF_DEAD = 387.06, 387.30
 CARD_T0, CARD_T1 = 387.14, 387.62
-CARD_OUT0, CARD_OUT1 = 390.55, 390.95
+CARD_OUT0, CARD_OUT1 = 390.05, 390.45   # 卡片退场；之后交给 preview.credits_frame
 
 
 def _row_wobble(img: Image.Image, amp: float, phase: float) -> Image.Image:
@@ -1704,14 +1704,11 @@ def _plain_frame(t: float) -> Image.Image:
     # 3% 黑 + 光标 + [谢谢收听]（390.95 起）。
     # 顺序很重要：387.0 = `scene.END_CUT`（歌结束），之前那 0.54 s 画的是**还活着的画面**
     # （塌缩的对象），之后才是卡片。卡片自己的淡入/淡出在 `_ending_crt` 里，这里只决定画哪张。
-    if t >= CARD_OUT1:
-        # 391.0 的 [谢谢收听] 原来是一帧硬出（0.62 alpha 的整行字凭空出现）。既然这条尾巴
-        # 现在真的会被播到（见上面那段注释），就给它 0.4 s 的淡入，和卡片的退场接上。
-        thanks_a = 0.0 if t < 391.0 else min(1.0, (t - 391.0) / 0.4)
-        if t >= 393.0:
-            thanks_a = max(0.0, 1.0 - (t - 393.0) / 1.6)
-        return preview.black_frame(t, cursor_on=t < DUR - 0.35, thanks=t >= 391.0,
-                                   thanks_alpha=thanks_a)
+    if t >= preview.CREDITS_OUT1:
+        # credits 打完了：管子暗下去，片子在黑里结束（不再留光标——机器的最后一行字已经打完）
+        return preview.black_frame(t, cursor_on=False, thanks=False)
+    if t >= preview.CREDITS_T0:
+        return preview.credits_frame(t)
     if t >= scene.END_CUT:
         return preview.ending_frame(t, cursor_on=True)
     # 0-5.2 s: the code stream — a disc goes into a machine and the machine reads it.

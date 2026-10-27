@@ -11,6 +11,7 @@ import clock
 import crt
 import drive
 import intro_fill
+import logos
 import tk
 from tk import (AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix, post)
 
@@ -678,21 +679,19 @@ def cover_card(t: float, title: str = "再见 兰花草", cursor: bool = False):
 
 
 def ending_frame(t: float, *, cursor_on: bool = True):
-    """386.5 s: GAME SET and an empty REWRITE 05 line. 387 s: cut to 3% black.
+    """GAME SET 卡：只有三个元素——大标、一条空行、空行上的光标。
 
-    The cursor has to sit ON the empty rewrite line — that is what makes the dot in the
-    3% black read as "still waiting" instead of a dead pixel.
+    导演（00:5x）：「6:30 之后有多余的字符飘着」——原来这张卡上还散着四行小字
+    （`LASER KARAOKE // LD-1994` / `REWRITE 05` / `再见 兰花草` / `261026 0353`），
+    导演说删掉即可。歌名和品牌都搬进 `credits_frame` 了，这里就只剩"机器停了"这一件事。
+    光标仍然坐在那条空行上——它是 3% 黑里那个点读成"还在等"而不是坏点的原因。
     """
     img = Image.new("RGB", (tk.W, tk.H), BG)
     d = ImageDraw.Draw(img)
-    tk.text(d, (64, 40), "LASER KARAOKE  //  LD-1994", font(tk.MONO, 12), AMBER, 0.45)
     tk.text(d, (64, 286), "GAME SET", font(tk.MONO_B, 54), AMBER, 0.92)
-    tk.text(d, (64, 372), "REWRITE 05", font(tk.MONO, 14), RED, 0.72)
     d.line([(64, 428), (300, 428)], fill=fade(AMBER, 0.22))
     if cursor_on:
         d.rectangle([64, 400, 78, 426], fill=fade(AMBER, 0.9))
-    tk.text(d, (64, 596), "再见 兰花草", font(tk.CJK, 13), AMBER, 0.28)
-    tk.text(d, (64, 640), "261026 0353", font(tk.MONO, 10), AMBER, 0.3)
     return post(img, 0.25)
 
 
@@ -708,13 +707,91 @@ def black_frame(t: float, cursor_on: bool = True, thanks: bool = False, thanks_a
     if cursor_on:
         d.rectangle([64, 400, 78, 426], fill=(255, 176, 0))
     if thanks and thanks_alpha > 0.01:
-        f = font(tk.MONO, 15)
+        # 中文字形：consola 没有中文，用 MONO 会渲染成豆腐块（这条尾巴以前从没播到，所以没暴露）
+        f = font(tk.CJK, 15)
         txt = "[ 谢谢收听 ]"
         tw = d.textlength(txt, font=f)
         d.text(((tk.W - tw) / 2, tk.H / 2 + 60), txt, font=f,
                fill=fade(AMBER, 0.62 * thanks_alpha))
     return img.point(tk._gauze)
 
+
+
+# ---- 结尾的 credits：机器的最后一段打印 ------------------------------------------
+# 导演（00:5x）：「6:30~6:35 我想留下我自己的信息，比如同人 xx 风格纯代码 mv 等，
+# 然后还要标注使用的 LLM 模型，目前有三个，然后用本项目风格化呈现出这几个模型的 logo」。
+# 导演给的：ID = RedStar_ChinRinhan；三个模型 = DeepSeek-V4.1-flash / MiniMax-M3.1-flash /
+# Mimo-V2.6-Pro；GAME SET 卡上那四行散字（REWRITE 05 / 261026 0353 …）删掉。
+#
+# 为什么不做成"片尾滚动字幕"：这片子从头到尾是一台 1994 年激光卡拉OK机的界面，所以 credits
+# 是**这台机器打印出来的最后一段系统信息**——等宽字、琥珀色、`>` 提示符、逐字打出。
+# 三个模型接在 CH 1–6 后面，是 CH 07/08/09：人是操作员，模型是通道。
+CREDITS_T0 = 390.45
+CREDITS_OUT0, CREDITS_OUT1 = 394.50, 395.10
+
+_ROWS = (
+    ("deepseek", "CH 07", "DeepSeek-V4.1-flash"),
+    ("minimax", "CH 08", "MiniMax-M3.1-flash"),
+    ("mimo", "CH 09", "Mimo-V2.6-Pro"),
+)
+
+
+def _print(d, xy, txt, f, col, a, prog):
+    """逐字打出（plan/10 的语法）：prog 从 0 到 1 把一行字写完。"""
+    if prog <= 0.0 or a <= 0.01:
+        return
+    n = max(0, int(len(txt) * min(1.0, prog)))
+    if n:
+        tk.text(d, xy, txt[:n], f, col, a)
+
+
+def credits_frame(t: float):
+    """390.45–395.10：同人署名 + 三个模型的通道，然后管子暗下去。"""
+    img = Image.new("RGB", (tk.W, tk.H), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    u = t - CREDITS_T0
+
+    def at(u0, dur=0.20):
+        return max(0.0, min(1.0, (u - u0) / dur))
+
+    _print(d, (64, 96), "> CREDITS", font(tk.MONO_B, 13), AMBER, 0.90, at(0.04, 0.14))
+    _print(d, (64, 130), "同人作品 · 纯代码 MV", font(tk.CJK, 22), AMBER, 0.95, at(0.22, 0.22))
+    _print(d, (64, 172), "1994 LASER KARAOKE STYLE  ·  NO FOOTAGE — EVERY FRAME IS CODE",
+           font(tk.MONO, 9), AMBER, 0.42, at(0.42, 0.30))
+    _print(d, (64, 212), "原作 / 演唱    张雨生《再见 兰花草》", font(tk.CJK, 13), AMBER, 0.62, at(0.62))
+    _print(d, (64, 244), "制作           RedStar_ChinRinhan", font(tk.CJK, 13), AMBER, 0.62, at(0.80))
+
+    a1 = at(0.96)
+    if a1 > 0:
+        d.line([(64, 282), (700, 282)], fill=fade(AMBER, 0.18 * a1))
+
+    for i, (mark, ch, name) in enumerate(_ROWS):
+        u0 = 1.06 + i * 0.20
+        a = at(u0, 0.18)
+        if a <= 0.01:
+            continue
+        y = 298 + i * 60
+        tk.text(d, (64, y + 20), ch, font(tk.MONO_B, 9), AMBER, 0.55 * a)
+        logos.draw(img, (128, y), mark, px=4, alpha=a)
+        _print(d, (252, y + 18), name, font(tk.MONO_B, 15),
+               mix(logos.COLOR[mark], AMBER, 0.35), 0.94 * a, at(u0, 0.20))
+
+    a2 = at(1.66)
+    if a2 > 0:
+        d.line([(64, 484), (700, 484)], fill=fade(AMBER, 0.18 * a2))
+    _print(d, (64, 504), "[ 谢谢收听 ]", font(tk.CJK, 13), AMBER, 0.55, at(1.80))
+
+    # 一道扫描光扫过面板——这台机器"正在打印"
+    sc = at(2.05, 0.95)
+    if 0.0 < sc < 1.0:
+        y = 282 + sc * 240
+        d.line([(64, y), (700, y)], fill=fade((255, 246, 224), 0.10 * math.sin(sc * math.pi)))
+
+    img = post(img, 0.30)
+    if t >= CREDITS_OUT0:
+        k = min(1.0, (t - CREDITS_OUT0) / (CREDITS_OUT1 - CREDITS_OUT0))
+        img = Image.blend(img, Image.new("RGB", (tk.W, tk.H), (0, 0, 0)), k)
+    return img
 
 
 def _lerp_box(a, b, u):
