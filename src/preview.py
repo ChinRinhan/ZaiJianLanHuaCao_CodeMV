@@ -756,15 +756,15 @@ def credits_frame(t: float):
     def at(u0, dur=0.20):
         return max(0.0, min(1.0, (u - u0) / dur))
 
-    _print(d, (64, 96), "> CREDITS", font(tk.MONO_B, 13), AMBER, 0.90, at(0.04, 0.14))
-    _print(d, (64, 130), "同人作品 · 纯代码 MV", font(tk.CJK, 22), AMBER, 0.95, at(0.20, 0.22))
-    _print(d, (64, 172), "1994 LASER KARAOKE STYLE  ·  NO FOOTAGE — EVERY FRAME IS CODE",
+    _print(d, (64, 92), "> CREDITS", font(tk.MONO_B, 13), AMBER, 0.90, at(0.04, 0.14))
+    _print(d, (64, 124), "同人作品 · 纯代码 MV", font(tk.CJK, 22), AMBER, 0.95, at(0.20, 0.22))
+    _print(d, (64, 164), "1994 LASER KARAOKE STYLE  ·  NO FOOTAGE — EVERY FRAME IS CODE",
            font(tk.MONO, 9), AMBER, 0.42, at(0.38, 0.30))
-    _print(d, (64, 212), "原作 / 演唱    张雨生《再见 兰花草》", font(tk.CJK, 13), AMBER, 0.62, at(0.54))
+    _print(d, (64, 200), "原作 / 演唱    张雨生《再见 兰花草》", font(tk.CJK, 13), AMBER, 0.62, at(0.54))
 
     a1 = at(0.70)
     if a1 > 0:
-        d.line([(64, 250), (700, 250)], fill=fade(AMBER, 0.18 * a1))
+        d.line([(64, 236), (700, 236)], fill=fade(AMBER, 0.18 * a1))
 
     # ---- 制作人员：人是一行，三个模型接在后面当 CH 07/08/09 --------------------
     # 导演（01:1x）：「三个模型也是『制作人员』，上面应该给一栏」；导演（01:2x）选 D 案：
@@ -773,8 +773,14 @@ def credits_frame(t: float):
     # 三个模型是同一栏里的三条通道。
     hd = at(0.82)
     if hd > 0:
-        tk.text(d, (64, 268), "STAFF", font(tk.MONO_B, 12), AMBER, 0.75 * hd)
-        tk.text(d, (140, 271), "制作人员", font(tk.CJK, 11), AMBER, 0.50 * hd)
+        # 两段字要坐在**同一条基线上**：MONO 和 CJK 的 ascent 不一样，直接给同一个 y
+        # 中文就会掉下去一点（导演 01:3x：「制作人员和 staff 没对齐」）。
+        fm, fc = font(tk.MONO_B, 12), font(tk.CJK, 11)
+        ty = 254
+        base = ty + fm.getmetrics()[0]
+        tk.text(d, (64, ty), "STAFF", fm, AMBER, 0.75 * hd)
+        tk.text(d, (64 + d.textlength("STAFF", font=fm) + 16, base - fc.getmetrics()[0]),
+                "制作人员", fc, AMBER, 0.50 * hd)
 
     rows = (("operator", None, "OPERATOR", "RedStar_ChinRinhan"),) +            tuple(("model", m, ch, nm) for (m, ch, nm) in _ROWS)
 
@@ -783,7 +789,7 @@ def credits_frame(t: float):
         a = at(u0, 0.18)
         if a <= 0.01:
             continue
-        y = 296 + i * 56
+        y = 284 + i * 70
         tk.text(d, (64, y + 18), ch, font(tk.MONO_B, 9), AMBER, 0.55 * a)
         if kind == "operator":
             # 人的标志：那个光标块。它从 GAME SET 卡一路留到现在，是全片唯一"还在等"的东西。
@@ -803,13 +809,13 @@ def credits_frame(t: float):
 
     a2 = at(1.70)
     if a2 > 0:
-        d.line([(64, 528), (700, 528)], fill=fade(AMBER, 0.18 * a2))
-    _print(d, (64, 546), "[ 谢谢收听 ]", font(tk.CJK, 13), AMBER, 0.55, at(1.84))
+        d.line([(64, 560), (700, 560)], fill=fade(AMBER, 0.18 * a2))
+    _print(d, (64, 578), "[ 谢谢收听 ]", font(tk.CJK, 13), AMBER, 0.55, at(1.84))
 
     # 一道扫描光扫过面板——这台机器"正在打印"
     sc = at(2.10, 0.95)
     if 0.0 < sc < 1.0:
-        y = 250 + sc * 290
+        y = 236 + sc * 324
         d.line([(64, y), (700, y)], fill=fade((255, 246, 224), 0.10 * math.sin(sc * math.pi)))
 
     img = post(img, 0.30)
