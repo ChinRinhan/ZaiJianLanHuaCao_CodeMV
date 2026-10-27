@@ -197,8 +197,8 @@ def section_at(t: float):
 #   147-162       "细小的钢琴声…像巴赫的巴洛克"            only other -39.3        almost dark: one thin line
 #   162-190       "小提琴与钢琴交互进行"                   only other -30.8        two lines trading
 #   190-212       "贝斯清晰可闻，电吉他以不同方式咆哮"     bass -31.7 drums -34.2  bass visible again
-#   212-230       "电吉他尽情咆哮"                         drums -25.3 (loudest)   full-on, beat drives it
-#   230-245.79    同上（人声轨空）                         drums -25.5             thinning into B②
+#   212-230       "电吉他尽情咆哮"                         drums -22.2 other -25.4  full-on, beat drives it
+#   230-245.79    同上（人声轨空），而且更响                  drums -22.7 other -23.6  the last wave, NOT a cool-down
 BREAK_SECTIONS = [
     # id, start, end, mood, cold, flower, entity, rain, spiral, amp, flower_x, count
     # 呐喊 (124–136.6) 归 B①（宣言的爆点）。这里剩的是它的尾巴：鼓与吉他收尾，
@@ -208,7 +208,11 @@ BREAK_SECTIONS = [
     ("duet", 162.0, 190.0, 0.25, 0.05, 0.40, 0.00, 0.00, 0.0, 0.40, 0.60, 1),
     ("bass", 190.0, 212.0, 0.30, 0.00, 0.45, 0.00, 0.00, 0.0, 0.55, 0.78, 1),
     ("roar", 212.0, 230.0, 0.35, 0.00, 0.55, 0.45, 0.00, 0.4, 1.00, 0.72, 1),
-    ("cool", 230.0, 245.79, 0.30, 0.00, 0.50, 0.35, 0.00, 0.2, 0.90, 0.72, 1),
+    # 2026-10-27 07:3x 返工：这一段原来叫 "cool"（收冷），按的是"逐个下线"的想象。
+    # 实测 RMS 打回来了：230–245.79 的 drums −22.7 / other −23.6 dBFS，比 212–230 的
+    # −22.2 / −25.4 还响（吉他轨 +1.8 dB）；解析视频也说"210–242 电吉他尽情咆哮"、
+    # "246 人声再现"。所以它不是收冷，是最后一波。名字和能量都按事实改。
+    ("last", 230.0, 245.79, 0.42, 0.00, 0.55, 0.45, 0.00, 0.5, 1.05, 0.72, 1),
 ]
 
 # the framing of each movement: a different camera, not a different filter (plan/03 §2.1)
@@ -220,7 +224,7 @@ BREAK_CAMERA = {
     "duet": (-60.0, 0.70, 0.52),   # pans left, two lines trading
     "bass": (40.0, 0.85, 0.66),    # comes back right, bass visible: low horizon
     "roar": (0.0, 1.20, 0.72),     # the loudest movement
-    "cool": (-20.0, 0.95, 0.64),
+    "last": (10.0, 1.10, 0.70),    # the last wave: as wide and low as the roar
 }
 
 

@@ -37,7 +37,7 @@ MASTER = ROOT / "out" / "film-v2.mp4"
 PY = sys.executable
 
 sys.path.insert(0, str(SRC))
-from chapter import CHAPTERS  # noqa: E402  the floor table
+from chapter import CHAPTERS, assert_floors  # noqa: E402  the floor table
 
 
 def floor_no(cid: str) -> int:
@@ -118,6 +118,7 @@ def main() -> None:
         print(__doc__)
         return
     cmd = args[0]
+    assert_floors()          # 楼层表必须盖满 0..395.667，否则立刻停（plan/16 §0）
     if cmd == "status":
         status()
         return

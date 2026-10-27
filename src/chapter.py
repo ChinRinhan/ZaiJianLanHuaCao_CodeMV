@@ -30,15 +30,51 @@ CHAPTERS = [
      "前奏四层乐器 → A① 四次改写 → B① 整屏大字 → 呐喊（2:16 人声落尽）"),
     ("2", "ch2-interlude", 136.6, 245.79,
      "间奏：收尾 → 钢琴 → 小提琴×钢琴 → 贝斯 → 吉他咆哮 → 收冷"),
-    ("3", "ch3-b2-a2", 245.79, 312.45,
-     "B② 过载残骸 + A② 带唱两个半块（啊预备唱 / 第二步）"),
-    ("4", "ch4-a3-peak", 312.45, 358.92,
+    # 2026-10-27 07:3x：ch3 拆成两篇。B② 是独立的一篇（它有自己的起承转合：后退→抽空→
+    # 归零→点名），A② 是另一篇。这样"一篇一篇"的纪律才落得到楼层上，而不是一章 66 秒。
+    ("3", "ch3-b2", 245.79, 266.31,
+     "B② 第二次要五分钟：机器后退 → 抽空 → 表盘归零 → CH 1–6 点名（六人齐唱）"),
+    ("4", "ch4-a2", 266.31, 312.45,
+     "A② 带唱第一轮，两个半块（啊预备唱 / 第二步）"),
+    ("5", "ch5-a3-peak", 312.45, 358.92,
      "A③ 顶点：全片最亮、兰丛、两个半块（升key / 再升）"),
-    ("5", "ch5-a4-rewrite", 358.92, 387.0,
+    ("6", "ch6-a4-rewrite", 358.92, 387.0,
      "A④ 减法 → REWRITE 05 → GAME SET → 硬切"),
-    ("6", "ch6-outro", 387.0, 395.667,
+    ("7", "ch7-outro", 387.0, 395.667,
      "3% 黑 + 光标 + [谢谢收听]"),
 ]
+
+SONG_END = 395.667
+
+
+def check_floors() -> list[str]:
+    """The six floors must tile 0..395.667 with no gap and no overlap.
+
+    plan/16 §0「断言式时间轴」的第二半：原案在 engine.py:355-362 断言整首歌被镜头盖满，
+    我们之前只对 A① 有 check_coverage()，楼层之间没有任何校验——段落漏了、叠了，只能靠
+    人眼在成片里发现。这里补上。
+    """
+    problems = []
+    prev = None
+    for cid, name, t0, t1, _desc in CHAPTERS:
+        if prev is not None and abs(t0 - prev) > 1e-6:
+            problems.append(f"floor {cid} ({name}) starts {t0}, previous floor ended {prev}")
+        if t1 <= t0:
+            problems.append(f"floor {cid} ({name}) has non-positive length {t1 - t0}")
+        prev = t1
+    if abs(CHAPTERS[0][2] - 0.0) > 1e-6:
+        problems.append(f"first floor starts {CHAPTERS[0][2]}, expected 0")
+    if abs(prev - SONG_END) > 1e-6:
+        problems.append(f"last floor ends {prev}, expected {SONG_END}")
+    return problems
+
+
+def assert_floors() -> None:
+    probs = check_floors()
+    if probs:
+        raise ValueError("floor table does not tile 0..%.3f: %s"
+                         % (SONG_END, "; ".join(probs)))
+
 
 # one key frame every ~7 s, plus every chapter boundary and every named moment
 STILLS = {
@@ -47,11 +83,11 @@ STILLS = {
           105.0, 107.0, 110.0, 113.0, 116.0, 119.0, 122.0, 126.0, 130.0, 134.0, 136.0],
     "2": [138.0, 142.0, 145.0, 150.0, 156.0, 162.0, 170.0, 180.0,
           190.0, 196.0, 205.0, 212.0, 220.0, 228.0, 236.0, 243.0],
-    "3": [247.0, 252.0, 258.0, 264.0, 267.0, 272.0, 280.0, 288.0, 291.0, 297.0,
-          305.0, 311.0],
-    "4": [314.0, 320.0, 327.0, 333.0, 337.0, 342.0, 350.0, 356.0],
-    "5": [360.0, 366.0, 372.0, 378.0, 382.0, 384.0, 386.0, 386.6],
-    "6": [387.5, 389.0, 391.5, 393.0, 394.5],
+    "3": [246.0, 248.5, 250.2, 252.3, 256.0, 260.9, 263.0, 264.5, 265.1, 265.6, 266.2],
+    "4": [267.0, 272.0, 280.0, 288.0, 291.0, 297.0, 305.0, 311.0],
+    "5": [314.0, 320.0, 327.0, 333.0, 337.0, 342.0, 350.0, 356.0],
+    "6": [360.0, 366.0, 372.0, 378.0, 382.0, 384.0, 386.0, 386.6],
+    "7": [387.5, 389.0, 391.5, 393.0, 394.5],
 }
 
 
@@ -64,20 +100,20 @@ def chapter_by_id(cid: str):
 
 def render_stills(cid: str, t0: float, t1: float) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import scene
+    import scene4                      # 2026-10-27: 审片入口之前还指着旧 scene（plan/24 §5-1）
 
     d = OUT / f"stills-ch{cid}"
     d.mkdir(parents=True, exist_ok=True)
     for t in STILLS.get(cid, []):
         if not (t0 <= t <= t1):
             continue
-        scene.frame(t).save(d / f"{t:07.2f}.png")
+        scene4.frame(t).save(d / f"{t:07.2f}.png")
     print(f"stills -> {d}  ({len(list(d.glob('*.png')))} frames)")
 
 
 def render_video(cid: str, name: str, t0: float, t1: float, workers: int) -> None:
     cmd = [sys.executable, str(Path(__file__).resolve().parent / "render.py"),
-           f"{t0}", f"{t1}", f"{name}.mp4", "--workers", str(workers)]
+           f"{t0}", f"{t1}", f"{name}.mp4", "--workers", str(workers), "--scene", "scene4"]
     subprocess.run(cmd, check=True)
 
 

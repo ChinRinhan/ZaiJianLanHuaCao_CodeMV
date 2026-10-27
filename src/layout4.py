@@ -134,6 +134,32 @@ def _frame(d, rect, color, alpha=0.35, title=None, right=None):
         d.text((x1 - tw - 8, y0 + 3), right, font=f, fill=fade(color, min(1.0, alpha + 0.3)))
 
 
+# ---- 共享心跳（plan/24 §6-①）：整块界面跟着同一拍呼吸 -------------------------------
+# 原案把 pulse 乘在每一个框上（engine.py:205 `0.45+0.3*pulse`、engine.py:265、stage.py:322）；
+# 我们之前只有呐喊环和涟漪跟拍，框线是常数，所以「界面」本身是死的。这里只改亮度、不改几何：
+# 每拍抬一点、0.14 s 内衰减回去，四个区同时亮——那是「一台机器」，不是「四个面板」。
+BREATH = 0.18           # 框线在一拍上抬多少 alpha
+
+
+def _breathe(t, base, depth=BREATH):
+    """Frame alpha that rises on every beat — the whole chassis shares one pulse."""
+    if not tk.FEEL:
+        return base
+    return min(1.0, base + depth * clock.pulse(t))
+
+
+def _dim_zone(dst: Image.Image, rect, k: float) -> None:
+    """把一个区压向纯黑（B②：机器往后退，抽空时全灭）。只动亮度，不动几何。"""
+    if k <= 0.01:
+        return
+    x0, y0, x1, y1 = rect
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return
+    lay = dst.crop((x0, y0, x1, y1))
+    dst.paste(Image.blend(lay, Image.new("RGB", lay.size, (0, 0, 0)), min(0.985, k)),
+              (x0, y0))
+
+
 def _reveal(parent: Image.Image, rect, u: float, draw) -> None:
     """Legacy CRT-aperture reveal — kept for the `mount ui/` macro gesture only."""
     if u <= 0.0:
@@ -371,7 +397,7 @@ def header(t, *, state="READY", playing=False):
     img = Image.new("RGB", (W, HEAD_H), BG)
     d = ImageDraw.Draw(img)
     y0 = 6
-    d.line([(0, HEAD_H - 1), (W, HEAD_H - 1)], fill=fade(AMBER, 0.22))
+    d.line([(0, HEAD_H - 1), (W, HEAD_H - 1)], fill=fade(AMBER, _breathe(t, 0.22)))
     tk.text(d, (14, y0), "LASER KARAOKE", font(tk.MONO_B, 13), AMBER, 0.88)
     tk.text(d, (150, y0 + 2), "LD-1994", font(tk.MONO, 11), AMBER, 0.50)
     lv = min(1.0, drive.drums(t) * 0.8 + 0.1)
@@ -398,7 +424,7 @@ def entity(t, rect=None, *, tray=0.0, disc=True, rpm=8.3, state="PLAY", power="O
     idle = float(boot.get("idle", 0.0)) if boot else 0.0
     dim = 1.0 - 0.5 * idle
 
-    for gr, a in ((0, 0.42), (-4, 0.20), (-8, 0.10)):
+    for gr, a in ((0, _breathe(t, 0.42)), (-4, 0.20), (-8, 0.10)):
         d.rectangle([gr, gr, w - 1 - gr, h - 1 - gr], outline=fade(AMBER, a * (1 - 0.4 * u)))
 
     hy = 30 if narrow else 36
@@ -418,7 +444,7 @@ def entity(t, rect=None, *, tray=0.0, disc=True, rpm=8.3, state="PLAY", power="O
     bx0, bx1 = 16, w - 16
 
     by0, by1 = 14, 248
-    d.rectangle([bx0, by0, bx1, by1], outline=fade(AMBER, 0.32))
+    d.rectangle([bx0, by0, bx1, by1], outline=fade(AMBER, _breathe(t, 0.32)))
     tk.text(d, (bx0 + 10, by0 + 2), " CD TRANSPORT ", font(tk.MONO, 9), AMBER, 0.60)
 
     if tray > 0.01:
@@ -598,6 +624,10 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
     if solo:
         if solo.get("rise", 0) > 0.01:
             tk.rise_line(img, R, t, solo["rise_steps"], amount=solo["rise"])
+        if solo.get("bass", 0) > 0.01:
+            # 3:10–3:32：贝斯在吉他阶梯脚下的地面上横着走（音高 = 台阶高度）
+            tk.bass_steps(img, R, t, solo["bass_notes"], amount=solo["bass"],
+                          lo=38, hi=62)
         if solo.get("ripple", 0) > 0.01:
             # on the ridge line, not in the dark below it: 0.74 fell under the silhouette
             # and nobody saw it (checked at 190/196/204)
@@ -688,15 +718,15 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
         d = ImageDraw.Draw(img)
     tk.ticks(img, R)
     d = ImageDraw.Draw(img)
-    tk.hud(d, R, t, label, BLUE_HI, 0.40, stamp="261026 0353")
-    _frame(d, R, BLUE_MID, 0.22)
+    tk.hud(d, R, t, label, BLUE_HI, _breathe(t, 0.40, 0.12), stamp="261026 0353")
+    _frame(d, R, BLUE_MID, _breathe(t, 0.22))
     # the climb, last touch: the whole world gains light as the emotion rises
     if rise > 0.01:
         img = ImageEnhance.Brightness(img).enhance(1.0 + 0.16 * rise)
     return img
 
 
-def ops(t, rect=None, *, score=0.0, level=0.0, boot=None, overload=0.0):
+def ops(t, rect=None, *, score=0.0, level=0.0, boot=None, overload=0.0, ch=None):
     """The narrow right column: ch1's two meters, SCORE and LEVEL, stacked vertically.
 
     plan/14 keeps the meters "in the machine"; once the panel is split into four zones the
@@ -710,7 +740,7 @@ def ops(t, rect=None, *, score=0.0, level=0.0, boot=None, overload=0.0):
     w, h = x1 - x0, y1 - y0
     img = Image.new("RGB", (w, h), PANEL_BG)
     d = ImageDraw.Draw(img)
-    _frame(d, (0, 0, w - 1, h - 1), AMBER, 0.32, title="meters")
+    _frame(d, (0, 0, w - 1, h - 1), AMBER, _breathe(t, 0.32), title="meters")
 
     if overload > 0.01:
         # the overload lamp: red, pinned, twitching on every drum hit (plan/05 §4 口令闪)
@@ -759,12 +789,106 @@ def ops(t, rect=None, *, score=0.0, level=0.0, boot=None, overload=0.0):
 
     # ---- empty chorus channels: the meter jumps, the sources are blank (ch1) ----
     tk.text(d, (8, h - 48), "CH 1-6", font(tk.MONO, 9), AMBER, 0.45)
-    tk.text(d, (8, h - 34), "[ -- ]", font(tk.MONO, 10), RED, 0.60)
+    if ch is None:
+        tk.text(d, (8, h - 34), "[ -- ]", font(tk.MONO, 10), RED, 0.60)
+    # B② 的点名册不在这里画：它要画在压暗之后（见 frame() 的 _chorus_row），
+    # 否则它会跟着仪表一起暗下去——而归零之后它是全画面唯一还亮着的机器部件。
     return img
 
 
+def _chorus_row(img: Image.Image, rect, ch) -> None:
+    """B② 的点名册：CH 1–6。四个是「给我…」的账，后两个是合唱最后加进来的人。
+
+    唱片内页写着「六人齐唱」，这六格从 0:00 空到现在，就为了这一下。
+    """
+    x0, y0, x1, y1 = rect
+    d = ImageDraw.Draw(img)
+    lit = max(int(ch.get("acct", 0)), int(ch.get("choir", 0)))
+    call = int(ch.get("call", -1))
+    flash = float(ch.get("flash", 0.0))
+    for i in range(6):
+        cx = x0 + 8 + i * 11
+        on = i < lit
+        hot = i == call                    # 正在被点到的那个：亮一格，让"点名"看得出来
+        col = AMBER if on else RED
+        a = (0.95 if on else 0.30) + 0.25 * flash + (0.35 if hot else 0.0)
+        d.rectangle([cx, y1 - 37, cx + 9, y1 - 25], outline=fade(col, min(1.0, a)),
+                    fill=fade(col, (0.55 if hot else 0.35) * a if on else 0.05))
+        tk.text(d, (cx + 2, y1 - 36), str(i + 1), font(tk.MONO, 7), col, min(1.0, a + 0.05))
+
+
+SCORE_LABELS = {"boutro": "OUT", "piano": "PNO", "duet": "DUET",
+                "bass": "BAS", "roar": "ROAR", "last": "LAST"}
+
+
+def _score_strip(d, box, t, sections, alpha: float = 1.0):
+    """间奏的总谱：一条横向时间轴，六段刻度，playhead 走。
+
+    底部这条带在间奏里原本是空的——间奏没有歌词，109 秒只有一个表盘缩在右端。
+    它不该是歌词栏的替补，是另一件事：右列的六轨回答「谁在弹」，这条带回答「走到哪了」。
+    一张谱，一支笔，全曲长度一眼看完。
+    """
+    x0, y0, x1, y1 = box
+    t0, t1 = sections[0][1], sections[-1][2]
+    span = max(1e-6, t1 - t0)
+    wdt = x1 - x0
+
+    def X(tt):
+        return x0 + (min(t1, max(t0, tt)) - t0) / span * wdt
+
+    mid = (y0 + y1) * 0.5
+    hh = 11
+    d.line([(x0, mid), (x1, mid)], fill=fade(AMBER, 0.12 * alpha))
+
+    # 每 4 拍一根刻度：谱要有网格，不能只有六个色块
+    i = clock.beat_index(t0)
+    while True:
+        bt = clock.beat_t(i)
+        if bt >= t1:
+            break
+        if i % 4 == 0:
+            bx = X(bt)
+            d.line([(bx, mid + hh + 2), (bx, mid + hh + 7)], fill=fade(AMBER, 0.16 * alpha))
+        i += 1
+
+    last_id = sections[-1][0]
+    for sid, a, b, *_rest in sections:
+        xa, xb = X(a), X(b)
+        label = SCORE_LABELS.get(sid, sid.upper()[:4])
+        if t >= b:                       # 已经走完的
+            fill_a, edge_a, txt_a = 0.12, 0.26, 0.40
+        elif t >= a:                     # 正在走的
+            fill_a, edge_a, txt_a = 0.30, 0.90, 1.00
+        else:                            # 还没到的
+            fill_a, edge_a, txt_a = 0.02, 0.14, 0.26
+        edge_col = AMBER
+        if sid == last_id and a <= t < b:
+            # 最后一格：结尾前 4 秒边框转红——谱先知道要结束了，画面才跟上（B② 全灭）
+            heat = max(0.0, min(1.0, (t - (b - 4.0)) / 4.0))
+            edge_col = mix(AMBER, RED, heat)
+            edge_a = max(edge_a, 0.55 + 0.45 * heat)
+        d.rectangle([xa + 1, mid - hh, xb - 1, mid + hh], fill=fade(AMBER, fill_a * alpha),
+                    outline=fade(edge_col, edge_a * alpha))
+        f = font(tk.MONO_B if (a <= t < b) else tk.MONO, 8)
+        tw = d.textlength(label, font=f)
+        if xb - xa > tw + 10:
+            d.text(((xa + xb) / 2 - tw / 2, mid - 5), label, font=f,
+                   fill=fade(edge_col if sid == last_id and a <= t < b else AMBER,
+                             txt_a * alpha))
+
+    # playhead：一根线加一个笔尖，和全片同一支笔
+    px = X(t)
+    d.line([(px, mid - hh - 5), (px, mid + hh + 5)], fill=fade((255, 246, 224), 0.90 * alpha),
+           width=2)
+    d.polygon([(px - 3, mid - hh - 10), (px + 3, mid - hh - 10), (px, mid - hh - 3)],
+              fill=fade((255, 246, 224), 0.90 * alpha))
+    d.text((x1 - 34, y0 + 2), "%d:%02d" % (int(t) // 60, int(t) % 60),
+           font=font(tk.MONO, 8), fill=fade(AMBER, 0.45 * alpha))
+
+
 def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
-           label="LYRIC", log=None, old=None, times=None, sub=None, status=None):
+           label="LYRIC", log=None, old=None, times=None, sub=None, status=None,
+           score=None, chip=None):
     """The bottom band. Two roles, one place:
 
     log  -> boot lines, printed one by one with decoding glyphs (the opening)
@@ -782,7 +906,7 @@ def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
     w, h = x1 - x0, y1 - y0
     img = Image.new("RGB", (w, h), BG)
     d = ImageDraw.Draw(img)
-    _frame(d, (0, 0, w - 1, h - 1), AMBER, 0.30)
+    _frame(d, (0, 0, w - 1, h - 1), AMBER, _breathe(t, 0.30))
 
     if log is not None:
         tk.text(d, (12, 6), "tty0 . boot", font(tk.MONO, 9), AMBER, 0.40)
@@ -804,15 +928,33 @@ def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
     # the number. `status` = (text, alpha, done, outer, inner).
     if status is not None:
         s_, a_, done, outer, inner = status
-        cx = w - 104
-        _dial(img, cx, 30, 15, outer=outer, inner=inner, text="", alpha=a_, seg=1.0)
-        f40 = font(tk.MONO_B, 19)
+        # 归位之后：**和那个弹出的计时框长得一模一样**（同一个部件，只是不在动）。
+        # 位置就是它最早那个表盘的老地方：底部栏右端。
+        # 导演 08:5x：「可以再弹出一个计时框在右下角，就是原来的区域」
+        # 底部带只有 90 px 高，上面还有 LYRIC 标签和歌词行 —— 计时框必须压进 34 px，
+        # 否则上沿会顶出带子（实测 44 px 的框压住了带子外框）。
+        pw, ph = 158, 30
+        px1, py1 = w - 12, h - 16
+        px0, py0 = px1 - pw, py1 - ph
+        d.rectangle([px0, py0, px1, py1], fill=fade((6, 6, 10), 0.92 * a_),
+                    outline=fade(AMBER, 0.50 * a_))
+        rr = 6
+        cx, cy = px0 + 6 + rr, (py0 + py1) // 2
+        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=fade(AMBER, 0.22 * a_))
+        d.arc([cx - rr, cy - rr, cx + rr, cy + rr], -90,
+              -90 + 359.9 * max(0.0, min(1.0, inner)),
+              fill=fade((255, 246, 224), 0.95 * a_), width=3)
         col = RED if done else AMBER
-        tk.text(d, (cx + 22, 19), s_, f40, col, 0.95 * a_)
-        tk.text(d, (cx + 22, 40), "TILL CHORUS" if not done else "NOW",
-                font(tk.MONO, 7), col, 0.32 * a_)
+        tk.text(d, (cx + rr + 6, py0 + 4), s_, font(tk.MONO_B, 13), col, 0.95 * a_)
+        tk.text(d, (px1 - 40, py0 + 6), "NOW" if done else "CHORUS",
+                font(tk.MONO, 7), col, 0.42 * a_)
 
     top = 26
+    # 倒计时最小化之后落在左端（chip）；歌词必须给它让位，否则两个东西叠在一起
+    LX = 16
+    if score:
+        # 总谱必须让开右端的计时框（pw=168 + 10 边距 + 12 间隙），否则 LAST 格会压在框上
+        _score_strip(d, (12, 20, w - 186, 80), t, score)
     if old:
         # the dead version, struck through, above the line being written
         fo = font(tk.CJK, 13)
@@ -823,31 +965,32 @@ def tokens(t, rect=None, *, chars, ids=None, typed=0, struck=None, cursor=False,
         top = 34
 
     if not chars:
-        if cursor:
-            d.rectangle([16, top + 2, 28, top + 30], fill=fade(BLUE_HI, 0.85))
+        # 间奏时这条带是总谱，不是等着下一句歌词的空行——光标不该出现
+        if cursor and not score:
+            d.rectangle([LX, top + 2, LX + 12, top + 30], fill=fade(BLUE_HI, 0.85))
         return img
 
     # the lyric: typed with the pen — whole glyphs, one underline, one nib (plan/10)
     fc = font(tk.CJK, 21)
     disp = "".join(chars)
     if times is not None and len(times) == len(disp):
-        tk.pen_typed(img, (16, top), disp, fc, (255, 252, 240), t, times=times,
+        tk.pen_typed(img, (LX, top), disp, fc, (255, 252, 240), t, times=times,
                      alpha=0.95, underline=AMBER)
     else:
         # no measured times: fall back to the same even progress pen_typed uses
         prog = typed / max(1, len(disp))
-        tk.pen_typed(img, (16, top), disp, fc, (255, 252, 240), prog, times=None,
+        tk.pen_typed(img, (LX, top), disp, fc, (255, 252, 240), prog, times=None,
                      alpha=0.95, underline=AMBER)
 
     # the one rewritten glyph, struck where it sits (plan/16 §2.3 UNDO marks the same way)
     if struck is not None and 0 <= struck < len(disp):
-        cx = 16 + d.textlength(disp[:struck], font=fc)
+        cx = LX + d.textlength(disp[:struck], font=fc)
         cw = d.textlength(disp[struck], font=fc)
         uy = top + int(fc.size * 1.06)
         d.line([(cx, uy), (cx + cw, uy)], fill=fade(RED, 0.95), width=2)
 
     if sub:
-        tk.text(d, (16, top + 34), sub, font(tk.CJK, 11), AMBER, 0.34)
+        tk.text(d, (LX, top + 34), sub, font(tk.CJK, 11), AMBER, 0.34)
     return img
 
 
@@ -968,7 +1111,8 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
           chars=None, typed=0, struck=None, cursor=False, state="READY", playing=False,
           log=None, paper_kw=None, old=None, cue=None, big=None, undo=None, times=None,
           boot=None, overload=0.0, glow=0.34, demand=None, cell=0.0, inst=None,
-          cell_px: float = 0.0, status=None, dial=None):
+          cell_px: float = 0.0, status=None, dial=None, dim=None, chorus=None,
+          scoreline=None, chip_now=False):
     z = zones(collapse, mode, cell, cell_px)
     img = Image.new("RGB", (W, H), BG)
 
@@ -985,7 +1129,16 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
                              **(entity_kw or {})), z["entity"][:2])
             dst.paste(content(t, z["content"], boot=boot, **(content_kw or {})), z["content"][:2])
             dst.paste(ops(t, z["ops"], score=score, level=level, boot=boot,
-                          overload=overload), z["ops"][:2])
+                          overload=overload, ch=chorus), z["ops"][:2])
+            # B②：机器往后退（顶栏 + 实体列 + 仪表压暗），世界不动——"当着观众再说一遍"
+            if dim:
+                _dim_zone(dst, (0, 0, W, HEAD_H), dim.get("header", 0.0))
+                _dim_zone(dst, z["entity"], dim.get("entity", 0.0))
+                _dim_zone(dst, z["content"], dim.get("content", 0.0))
+                _dim_zone(dst, z["ops"], dim.get("ops", 0.0))
+            # 点名册画在压暗之后：归零那一刻，它是全画面唯一还亮着的机器部件
+            if chorus:
+                _chorus_row(dst, z["ops"], chorus)
             ch = z.get("cell") or (0, 0, 0, 0)
             if inst and ch[2] - ch[0] > 30:
                 instruments.cellpanel(dst, ch, t, tracks=inst.get("tracks", []),
@@ -1002,7 +1155,9 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
     else:
         _reveal(img, (0, 0, W, z["tokens"][1] - 2), _boot_u(boot, "skeleton"), _workbench)
         img.paste(tokens(t, z["tokens"], chars=chars or [], typed=typed, struck=struck,
-                         cursor=cursor, log=log, old=old, times=times, status=status),
+                         cursor=cursor, log=log, old=old, times=times, status=status,
+                         label=("SCORE // INTERLUDE" if scoreline else "LYRIC"),
+                         score=scoreline, chip=bool(chip_now)),
                   z["tokens"][:2])
 
     # standby: the machine goes dark and waits for the voice (64 s)
@@ -1016,12 +1171,13 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
         _demand_slot(img, demand, z.get("cell") or None)
     if big:
         _big_line(img, big[0], big[1], age=big[2] if len(big) > 2 else 9.9,
-                  box=z.get("cell") or None)
+                  box=z.get("cell") or None,
+                  step=big[3] if len(big) > 3 else 1)
     if dial:
-        _dial(img, dial["x"], dial["y"], dial["r"], outer=dial["outer"],
-              inner=dial["inner"], text=dial["text"], alpha=dial["alpha"],
-              seg=dial["seg"], label=dial.get("label", "TILL CHORUS"),
-              big=dial.get("big", False))
+        rr = dial["rect"]
+        if rr[2] >= rr[0] and rr[3] >= rr[1]:
+            _dial(img, rr, stage=dial["stage"], inner=dial["inner"],
+                  text=dial["text"], alpha=1.0)
     img = tk.post(img, glow)
     if cue:
         _cue_line(img, cue, t)
@@ -1180,68 +1336,121 @@ def _demand_slot(img, st, box=None):
 
 
 
-def _dial(img, cx, cy, r, *, outer: float, inner: float, text: str, alpha: float = 1.0,
-          seg: float = 1.0, label: str = "TILL CHORUS", big: bool = False):
-    """Five minutes and two twenty-five, as two rings.
+def _dial(img, rect, *, stage: int, inner: float, text: str, alpha: float = 1.0,
+          label: str = "TILL CHORUS"):
+    """The countdown as a WINDOW, not a circle.
 
-    导演 (04:37):「五分钟的意象应该是对应整个歌曲，可以着重做一下」。The promise is five
-    minutes; the song only grants 2:25 to the chorus. So the widget is TWO rings:
+    导演（08:3x）：「切割出一个提示框，里面放入倒计时，随后线框收缩，左下角再展开，
+    这样更有代码朋克感」。
 
-        outer, thin, 300 s   the promise — it never closes, because the song ends first
-        inner, thick, 145 s  what is actually granted — it closes exactly at 4:25
+    窗口语言比环形语言高一档：环是一个图形，窗口是**系统的一个部件**。
+    弹出 → 收成一条底边 → 在左下角展开成常驻芯片——这是桌面动作，正好是这台机器的
+    世界观（一台 1994 年的机器跑着后来的界面）。而且它天生解决"生硬"：有框、有标题栏、
+    有打开和关闭。
 
-    `outer` / `inner` are 0..1 progress. `seg` (0..1) scrambles the ring into segments
-    that appear out of order — the clock is ASSEMBLED, not faded in.
+    窗口里仍然是那对环，因为那是"五分钟 vs 2:25"的算术：
+        outer, thin, 300 s   许诺——永远不闭合，因为歌先结束了
+        inner, thick, 145 s  实际给的——正好在 4:25 闭合
     """
     if alpha <= 0.01:
         return
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    if w < 2 and h < 2:
+        return
+    if h < 4 and w >= 2:
+        # 收线：只剩一条底边。这条线是唯一还在的东西——所以要亮、要有余晖，
+        # 否则"窗口塌成一条线"这个动作根本看不见（实测在暗山脊上几乎消失）。
+        d0 = ImageDraw.Draw(img)
+        d0.line([(x0, y1), (x1, y1)], fill=fade((255, 246, 224), 1.0 * alpha), width=3)
+        for k in (2, 5, 9):
+            d0.line([(x0, y1 - k), (x1, y1 - k)],
+                    fill=fade(AMBER, 0.42 * alpha / k), width=1)
+            d0.line([(x0, y1 + k), (x1, y1 + k)],
+                    fill=fade(AMBER, 0.42 * alpha / k), width=1)
+        return
     d = ImageDraw.Draw(img)
-    ring = fade(AMBER, 0.85 * alpha)
-    hot = fade((255, 246, 224), 1.0 * alpha)
-    w = 2 if r > 30 else 1
-    # outer: the promise. segments appear in a hashed order while it assembles
+    chip = h <= 46 and w >= 30
+    a = alpha
+
+    if chip:
+        # ---- 归位的计时框（右下角）：一个框 + 一个环 + 一个数，就是最小化之后的样子 ----
+        d.rectangle([x0, y0, x1, y1], fill=fade((6, 6, 10), 0.88 * a),
+                    outline=fade(AMBER, 0.55 * a))
+        # 环的半径同时受高度和宽度约束——刚弹出来时框只有几十 px，硬给 9 会溢出
+        r = max(3, min(9, (h - 10) // 2, (w - 40) // 2))
+        ccx, ccy = x0 + 6 + r, (y0 + y1) // 2
+        if r >= 3:
+            d.ellipse([ccx - r, ccy - r, ccx + r, ccy + r], outline=fade(AMBER, 0.22 * a))
+            d.arc([ccx - r, ccy - r, ccx + r, ccy + r], -90,
+                  -90 + 359.9 * max(0.0, min(1.0, inner)),
+                  fill=fade((255, 246, 224), 0.95 * a), width=2)
+        if text and w >= 78:
+            fsz = 13 if h >= 24 else 10
+            tk.text(d, (ccx + r + 6, y0 + (h - fsz) // 2 - 2), text,
+                    font(tk.MONO_B, fsz), RED if inner <= 0.005 else AMBER, 0.95 * a)
+        if w >= 130:
+            tk.text(d, (x1 - 44, y0 + 6), "CHORUS", font(tk.MONO, 7), AMBER, 0.40 * a)
+        return
+
+    # ---- 窗口本体 ----
+    d.rectangle([x0, y0, x1, y1], fill=fade((5, 6, 11), 0.72 * a),
+                outline=fade(AMBER, 0.70 * a), width=2)
+    # 标题栏：一条横线 + 一个标签，和 TUI 的其它框同一套语法（框太小就不画）
+    if h >= 56 and w >= 120:
+        ty = y0 + 17
+        d.line([(x0 + 2, ty), (x1 - 2, ty)], fill=fade(AMBER, 0.40 * a))
+        tk.text(d, (x0 + 7, y0 + 4), " TIMER // 05:00 ", font(tk.MONO, 9), AMBER, 0.75 * a)
+        tk.text(d, (x1 - 15, y0 + 4), "x", font(tk.MONO, 9), AMBER, 0.35 * a)
+
+    # 里面的环：外环许诺（永不闭合），内环是实际给的。
+    # 半径必须由框的高度决定，而且圆心要在**标题栏以下的可用区**里居中——
+    # 原来 cy 取 y0+30、rr 有 10 px 下限，框一小（切框那 0.4 s 里 59×27）就整圈跑出框外。
+    tbh = 19 if h >= 56 else 0            # 标题栏占掉的高度；框太小就不画标题栏
+    avail = h - tbh - 6
+    if avail < 8 or w < 16:
+        return                            # 收线到最后几帧：框太扁，环画不下，交给外面的横线
+    rr = max(3.0, min(avail, w * 0.34) / 2)
+    cx = x0 + 8 + rr
+    cy = y0 + tbh + avail / 2
+    ring = fade(AMBER, 0.80 * a)
+    hot = fade((255, 246, 224), 1.0 * a)
     n = 30
     for i in range(n):
-        if seg < 1.0 and (i + 1) / n > seg:
-            continue
         a0 = -90 + 360 * i / n
-        d.arc([cx - r, cy - r, cx + r, cy + r], a0, a0 + 360 / n - 1.2, fill=ring, width=w)
-    # outer progress: a brighter arc that creeps round and never arrives
-    if outer > 0.002:
-        d.arc([cx - r, cy - r, cx + r, cy + r], -90, -90 + 359.9 * min(1.0, outer),
-              fill=fade(AMBER, 0.85 * alpha), width=w + 1)
-    # inner: what was granted
-    r2 = r * 0.72
-    d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=fade(AMBER, 0.16 * alpha))
+        d.arc([cx - rr, cy - rr, cx + rr, cy + rr], a0, a0 + 360 / n - 1.2,
+              fill=ring, width=2)
+    r2 = rr * 0.70
+    d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=fade(AMBER, 0.16 * a))
     if inner > 0.002:
-        d.arc([cx - r2, cy - r2, cx + r2, cy + r2], -90, -90 + 359.9 * min(1.0, inner),
-              fill=hot, width=max(2, w + 1))
-    if r > 30:
+        d.arc([cx - r2, cy - r2, cx + r2, cy + r2], -90,
+              -90 + 359.9 * min(1.0, inner), fill=hot, width=3)
+    if rr >= 18:                       # 小框不画刻度：刻度一定会顶出边
         for k in range(12):
             a0 = math.radians(-90 + k * 30)
-            d.line([(cx + math.cos(a0) * (r + 4), cy + math.sin(a0) * (r + 4)),
-                    (cx + math.cos(a0) * (r + 9), cy + math.sin(a0) * (r + 9))],
-                   fill=fade(AMBER, 0.30 * alpha))
-    fs = 40 if big else 13
-    f = font(tk.MONO_B, fs)
-    tw = d.textlength(text, font=f)
-    if big:
-        # the number has to win against a bright ridge behind it
-        d.text((cx - tw / 2, cy - fs * 0.62), text, font=f, fill=fade((2, 3, 8), alpha),
-               stroke_width=3, stroke_fill=fade((2, 3, 8), alpha))
-    d.text((cx - tw / 2, cy - fs * 0.62), text, font=f,
-           fill=fade((255, 246, 224), 0.98 * alpha))
-    if big:
-        # the outer ring is the FIVE MINUTES: without a label it is just a circle
-        f0 = font(tk.MONO, 9)
-        lab0 = "T+05:00"
-        d.text((cx - d.textlength(lab0, font=f0) / 2, cy - r - 16), lab0, font=f0,
-               fill=fade(AMBER, 0.55 * alpha))
-        f2 = font(tk.MONO, 9)
-        tw2 = d.textlength(label, font=f2)
-        d.text((cx - tw2 / 2, cy + r * 0.62), label, font=f2, fill=fade(AMBER, 0.55 * alpha))
+            d.line([(cx + math.cos(a0) * (rr + 3), cy + math.sin(a0) * (rr + 3)),
+                    (cx + math.cos(a0) * (rr + 6), cy + math.sin(a0) * (rr + 6))],
+                   fill=fade(AMBER, 0.30 * a))
 
-def _big_line(img, word, alpha, age=9.9, box=None):
+    # 数：大字在环的右边（窗口里是"图表 + 读数"，不是"图表当背景"）。
+    # 字号跟框高走，框一小就缩——否则数字会从框右边溢出去。
+    tx0 = cx + rr + 6
+    room = x1 - tx0 - 6
+    if text and room >= 36:
+        fs = int(max(12, min(38, avail * 0.62)))
+        f = font(tk.MONO_B, fs)
+        d.text((tx0, cy - fs * 0.58), text, font=f, fill=fade((2, 3, 8), a),
+               stroke_width=2, stroke_fill=fade((2, 3, 8), a))
+        d.text((tx0, cy - fs * 0.58), text, font=f, fill=fade((255, 246, 224), 0.98 * a))
+        if room >= 90:
+            tk.text(d, (tx0, cy + fs * 0.46), label, font(tk.MONO, 8), AMBER, 0.48 * a)
+    if stage == 2:
+        # 打折中：框的右下角闪一个小方块，提示"系统正在改这个数"
+        if int(inner * 40) % 2 == 0:
+            d.rectangle([x1 - 14, y1 - 13, x1 - 7, y1 - 6], fill=fade(RED, 0.85 * a))
+
+
+def _big_line(img, word, alpha, age=9.9, box=None, step=1):
     """B①' demands — 雷霆大字 (plan/05 §3: 942 AD — the strongest moment is typography).
 
     Stamped over the WORLD half, sized to fit it (an overflowing line is not big, it is a
@@ -1262,8 +1471,13 @@ def _big_line(img, word, alpha, age=9.9, box=None):
         tx0 = x0 + 8
         tx1 = x1 - 8
     fs = max(36, min(BIG_CAP, int((tx1 - tx0 - 24) / max(1, len(word)))))
-    punch = 0.0 if age >= 0.22 else (1.0 - age / 0.22)
-    fs = int(fs * (1.0 + 0.07 * punch))
+    # 落定手感（plan/24 §6-①）：冲进去 → 过冲一点 → 锁死。原案 kit.py:257 的 ease_back；
+    # 线性收敛只有"到位"，多了这一下"弹"才像机器把字盖上去。0.22 s 内完成。
+    _u = 0.0 if age >= 0.22 else (age / 0.22)
+    punch = 1.0 - (tk.ease_back(_u, s=2.2) if tk.FEEL else _u)
+    # 递进：第 1 句 0.09 的冲拳，第 4 句 0.15——同一动作，越砸越重
+    _amp = 0.09 + 0.020 * (max(1, min(4, step)) - 1)
+    fs = int(fs * (1.0 + (_amp if tk.FEEL else 0.07) * punch))
     f = font(tk.CJK, fs)
     tw = d.textlength(word, font=f)
     bx = tx0 + ((tx1 - tx0) - tw) / 2
@@ -1272,11 +1486,14 @@ def _big_line(img, word, alpha, age=9.9, box=None):
     d.text((bx, by), word, font=f, fill=fade((2, 3, 8), alpha),
            stroke_width=3, stroke_fill=fade((2, 3, 8), alpha))
     d.text((bx, by), word, font=f, fill=fade(AMBER, 0.92 * alpha))
-    # the beam: a light bar the full width of the world, falling off at both ends
+    # the beam: a light bar the full width of the world, falling off at both ends.
+    # 递进：第 2 句起光带变粗，第 4 句最粗——观众不看字也能数出打到第几下。
     yb = by + fs * 1.16
     span = x1 - x0
+    bh = 3 + max(0, min(4, step) - 1)
+    ba = 0.62 + 0.07 * (max(1, min(4, step)) - 1)
     for i in range(0, span, 6):
         u = (i + 3) / max(1, span)
         fall = min(1.0, 2.4 * min(u, 1.0 - u) + 0.10)
-        d.rectangle([x0 + i, yb, x0 + i + 6, yb + 3],
-                    fill=fade(AMBER, 0.62 * alpha * fall))
+        d.rectangle([x0 + i, yb, x0 + i + 6, yb + bh],
+                    fill=fade(AMBER, min(1.0, ba) * alpha * fall))

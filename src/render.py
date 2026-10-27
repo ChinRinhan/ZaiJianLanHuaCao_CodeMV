@@ -81,6 +81,11 @@ def main():
     ap.add_argument("--scene", type=str, default="scene")
     args = ap.parse_args()
 
+    # plan/16 §0「断言式时间轴」：覆盖不上就当场失败，而不是渲完两分钟才发现段落漏了。
+    # 原案 engine.py:355-362 就在开渲前 raise；我们之前只有 __main__ 里一个自检。
+    import shots
+    shots.assert_coverage()
+
     global _FRAMES
     tag = f"{args.t0:.2f}-{args.t1:.2f}".replace(".", "")
     if args.scene != "scene":

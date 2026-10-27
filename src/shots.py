@@ -129,6 +129,19 @@ def check_coverage():
     return problems
 
 
+def assert_coverage() -> None:
+    """覆盖不上就抛，不返回清单（plan/16 §0「断言式时间轴」）。
+
+    原案 engine.py:355-362 就是这一层：gap / overlap 直接 raise ValueError。我们之前只有
+    一个返回 list 的 check_coverage()，唯一调用点是本文件的 __main__，渲染路径从不调用——
+    等于只借了名字。现在 render.py 开渲前调一次，段落漏了/叠了会当场失败，而不是靠人眼。
+    """
+    probs = check_coverage()
+    if probs:
+        raise ValueError("A① shot table does not tile %.2f-%.2f: %s"
+                         % (A1_T0, A1_T1, "; ".join(probs)))
+
+
 if __name__ == "__main__":
     print("A① shot table (grid div %d)" % GRID_DIV)
     print("%-16s %8s %8s %6s %6s %s" % ("shot", "t0", "t1", "dur", "mode", "grid dev (frames)"))

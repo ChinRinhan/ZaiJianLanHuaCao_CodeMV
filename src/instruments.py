@@ -701,6 +701,56 @@ def trail_at(notes, t: float, *, span: float = 2.6, limit: int = 9) -> list:
     return out[-limit:]
 
 
+# ---------------------------------------------------------------- the violin's bow
+def _string_line(img, box, t, notes, *, lo: int, hi: int, lead: float = 3.0,
+                 alpha: float = 1.0):
+    """The violin as ONE continuous line — a bow, not a hammer.
+
+    钢琴是一颗一颗的锤子（roll 的方块），小提琴是一根不断的弓。同一个坐标系（音高横向、
+    时间纵向）里，两种纹理一眼分得开：方块是钢琴，折线是小提琴。
+
+    数据用的是卡农（`score3.canon` = 钢琴的延迟线 +7 半音），因为 Demucs 把提琴和钢琴
+    一起塞进 "other"，我们没有单独的提琴轨。而卡农本来就是"照一句抄一句"——这是诚实的
+    替代，不是编造出来的第二个人。
+    """
+    if not notes or alpha <= 0.01:
+        return
+    x0, y0, x1, y1 = box
+    v = (y1 - y0) / lead
+    kw, pos = keymap(lo, hi, x0, x1 - x0)
+    pts = []
+    for n in notes:
+        nt, midi = float(n[0]), int(n[1])
+        if midi not in pos:
+            continue
+        yy = y1 - (nt - t) * v
+        if y0 - 2 <= yy <= y1 + 2:
+            pts.append((pos[midi][0], min(y1, max(y0, yy))))
+    if len(pts) < 2:
+        return
+    pts.sort(key=lambda p: p[1])
+    d = ImageDraw.Draw(img)
+    # 磷光白，不是世界蓝：山脊、网格、音符全是蓝的，提琴必须是画面里唯一的"另一支笔"。
+    INK = (255, 246, 224)
+    d.line(pts, fill=fade(INK, 0.82 * alpha), width=2, joint="curve")
+    for p in pts:                        # 关节处点一下，折线才像"弓"不像"台阶"
+        d.ellipse([p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1], fill=fade(INK, 0.82 * alpha))
+    # 弓头：当前时刻在折线上的位置。一根线要有个"正在拉的地方"，否则它只是折线图。
+    head = None
+    for a, b in zip(pts, pts[1:]):
+        if a[1] <= y1 <= b[1] or b[1] <= y1 <= a[1]:
+            u = 0.0 if b[1] == a[1] else (y1 - a[1]) / (b[1] - a[1])
+            head = (a[0] + (b[0] - a[0]) * u, y1)
+            break
+    if head:
+        d.ellipse([head[0] - 3.5, head[1] - 3.5, head[0] + 3.5, head[1] + 3.5],
+                  fill=fade(INK, 0.98 * alpha))
+        d.ellipse([head[0] - 7, head[1] - 7, head[0] + 7, head[1] + 7],
+                  outline=fade(INK, 0.30 * alpha))
+    d.text((x0 + 2, y1 - 12), "VLN // ARCO", font=font(tk.MONO, 7),
+           fill=fade(INK, 0.42 * alpha))
+
+
 # ---------------------------------------------------------------- the whole stage
 def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
           alt=None, alpha: float = 1.0, solo: str | None = None, mv=(0.0, 0.0)):
@@ -738,6 +788,12 @@ def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
                  presses=presses_at(notes, t),
                  alt_presses=presses_at(alt_near, t) if alt_near else None,
                  trail=trail_at(notes, t), alpha=a_kb)
+        # 对话段（162–190）：小提琴进来。它只在这一段有形状——之前之后都没有第二个人。
+        # 进场 1.4 s、退场 1.6 s，和钢琴的升降同一个节奏感。
+        if kind == "duet":
+            ent = _ease((t - 161.2) / 1.4) * (1.0 - _ease((t - 188.0) / 1.8))
+            _string_line(img, roll_box, t, alt or [], lo=lo, hi=hi, lead=3.0,
+                         alpha=a_kb * max(0.0, ent))
         # the movement read-out, in the top strip: where we are, in machine words. The
         # note counter is the machine keeping score of what the band has played so far —
         # the only number in this shot that is allowed to climb.

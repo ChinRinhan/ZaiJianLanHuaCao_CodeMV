@@ -7,6 +7,8 @@ Consolas has no block-element glyphs, so every non-ASCII glyph goes through msyh
 from __future__ import annotations
 
 import math
+import os
+import random
 from functools import lru_cache
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -27,6 +29,10 @@ MONO = "C:/Windows/Fonts/consola.ttf"
 MONO_B = "C:/Windows/Fonts/consolab.ttf"
 CJK = "C:/Windows/Fonts/msyh.ttc"
 KAI = "C:/Windows/Fonts/simkai.ttf"
+
+# 手感开关（plan/24 §6-①）：TUI_FEEL=0 关掉「跟拍呼吸」与「字形乱跳」，回到 2026-10-27 之前的
+# 观感，用来做 A/B 对比。默认开。它不是美术参数，是"有没有接上原案那两条手感"的开关。
+FEEL = os.environ.get("TUI_FEEL", "1") != "0"
 
 CW, CH = 9, 16
 
@@ -569,6 +575,54 @@ def rise_line(img: Image.Image, rect, t: float, steps, *, amount: float = 1.0,
     d.line([(x0 + 2, y0 + h * floor), (x1 - 4, y0 + h * floor)], fill=fade(col, 0.10 * amount))
 
 
+def bass_steps(img: Image.Image, rect, t: float, notes, *, span=(190.0, 212.0),
+               floor: float = 0.95, band: float = 0.17, lo: int = 28, hi: int = 48,
+               amount: float = 1.0, color=None):
+    """The bass as a step trace lying on the ground — 3:10–3:32's second device.
+
+    吉他往上爬（`rise_line` 的阶梯），贝斯在它脚下横着走（台阶）。同一条时间轴，两个方向：
+    一个纵向的爬升，一个横向的踱步。音高就是台阶的高度，所以它读起来像"走"，不像电平表。
+    3:10–3:32 之前贝斯是六件乐器里唯一没有自己形状的一件。
+    """
+    if amount <= 0.01:
+        return
+    x0, y0, x1, y1 = rect
+    d = ImageDraw.Draw(img)
+    w, h = x1 - x0, y1 - y0
+    col = (255, 196, 120) if color is None else color
+    t0, t1 = span
+    if t <= t0:
+        return
+    d.line([(x0 + 2, y0 + h * floor), (x1 - 4, y0 + h * floor)],
+           fill=fade(col, 0.10 * amount))
+    u = min(1.0, (t - t0) / (t1 - t0))
+    xe = x0 + w * u
+
+    def Y(midi):
+        v = (midi - lo) / max(1, (hi - lo))
+        return y0 + h * (floor - band * max(0.0, min(1.0, v)))
+
+    pts = []
+    prev_y = None
+    for n in notes:
+        tn, midi = float(n[0]), int(n[1])
+        if tn < t0:
+            continue
+        if tn > t:
+            break
+        xx = x0 + 2 + (xe - x0 - 2) * min(1.0, (tn - t0) / max(1e-3, (t - t0)))
+        yy = Y(midi)
+        if prev_y is not None:
+            pts.append((xx, prev_y))      # 横向走一步
+        pts.append((xx, yy))              # 换台阶
+        prev_y = yy
+    if len(pts) < 2:
+        return
+    pts.append((xe, pts[-1][1]))
+    d.line(pts, fill=fade(col, 0.78 * amount), width=2)
+    d.ellipse([xe - 3, pts[-1][1] - 3, xe + 3, pts[-1][1] + 3], fill=fade(col, amount))
+
+
 def shock_ring(img: Image.Image, cx: float, cy: float, phase: float, amount: float = 1.0,
                rings: int = 3, rmax: float | None = None, color=AMBER, alpha: float = 0.5):
     """Concentric rings leaving the centre — the shout's punctuation.
@@ -832,8 +886,15 @@ def pen_typed(img: Image.Image, xy, s: str, f, color, t: float, times=None,
     for i in range(n):
         ci = x + d.textlength(s[:i], font=f)
         fresh = times is not None and (t - times[i]) < settle
-        d.text((ci + (1 if fresh else 0), y + (1 if fresh else 0)), s[i], font=f,
-               fill=fade(color, alpha * (0.55 if fresh else 1.0)))
+        ch = s[i]
+        if fresh and FEEL:
+            # 字还没解析完：`settle` 秒内它在字形集里乱跳，然后锁死（原案 words.py:96-99）。
+            # 种子取帧号，所以任何一帧仍可单独复现。宽度用真字算（ci），画面不会抖位。
+            ch = SCR[random.Random(int(t * 24) * 131 + i).randrange(len(SCR))]
+        # FEEL=0 时亮度也回到旧值（0.55），保证开关能一比一复现 2026-10-27 之前的画面
+        dim = (0.82 if FEEL else 0.55) if fresh else 1.0
+        d.text((ci + (1 if fresh else 0), y + (1 if fresh else 0)), ch, font=f,
+               fill=fade(color, alpha * dim))
     cut = x + d.textlength(s[:n], font=f)
     ucol = underline if underline is not None else color
     uy = y + f.size * 1.06
