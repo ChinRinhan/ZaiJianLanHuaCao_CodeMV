@@ -726,7 +726,7 @@ def black_frame(t: float, cursor_on: bool = True, thanks: bool = False, thanks_a
 # 为什么不做成"片尾滚动字幕"：这片子从头到尾是一台 1994 年激光卡拉OK机的界面，所以 credits
 # 是**这台机器打印出来的最后一段系统信息**——等宽字、琥珀色、`>` 提示符、逐字打出。
 # 三个模型接在 CH 1–6 后面，是 CH 07/08/09：人是操作员，模型是通道。
-_LOGO_CELL_W, _LOGO_CELL_H = 150, 52
+_LOGO_CELL_W, _LOGO_CELL_H = 150, 50
 
 CREDITS_T0 = 390.45
 CREDITS_OUT0, CREDITS_OUT1 = 394.50, 395.10
@@ -748,7 +748,7 @@ def _print(d, xy, txt, f, col, a, prog):
 
 
 def credits_frame(t: float):
-    """390.45–395.10：同人署名 + 三个模型的通道，然后管子暗下去。"""
+    """390.45–395.10：同人署名 + 制作人员栏（人 + 三个模型通道），然后管子暗下去。"""
     img = Image.new("RGB", (tk.W, tk.H), (0, 0, 0))
     d = ImageDraw.Draw(img)
     u = t - CREDITS_T0
@@ -757,43 +757,58 @@ def credits_frame(t: float):
         return max(0.0, min(1.0, (u - u0) / dur))
 
     _print(d, (64, 96), "> CREDITS", font(tk.MONO_B, 13), AMBER, 0.90, at(0.04, 0.14))
-    _print(d, (64, 130), "同人作品 · 纯代码 MV", font(tk.CJK, 22), AMBER, 0.95, at(0.22, 0.22))
+    _print(d, (64, 130), "同人作品 · 纯代码 MV", font(tk.CJK, 22), AMBER, 0.95, at(0.20, 0.22))
     _print(d, (64, 172), "1994 LASER KARAOKE STYLE  ·  NO FOOTAGE — EVERY FRAME IS CODE",
-           font(tk.MONO, 9), AMBER, 0.42, at(0.42, 0.30))
-    _print(d, (64, 212), "原作 / 演唱    张雨生《再见 兰花草》", font(tk.CJK, 13), AMBER, 0.62, at(0.62))
-    _print(d, (64, 244), "制作           RedStar_ChinRinhan", font(tk.CJK, 13), AMBER, 0.62, at(0.80))
+           font(tk.MONO, 9), AMBER, 0.42, at(0.38, 0.30))
+    _print(d, (64, 212), "原作 / 演唱    张雨生《再见 兰花草》", font(tk.CJK, 13), AMBER, 0.62, at(0.54))
 
-    a1 = at(0.96)
+    a1 = at(0.70)
     if a1 > 0:
-        d.line([(64, 282), (700, 282)], fill=fade(AMBER, 0.18 * a1))
+        d.line([(64, 250), (700, 250)], fill=fade(AMBER, 0.18 * a1))
 
-    for i, (mark, ch, name) in enumerate(_ROWS):
-        u0 = 1.06 + i * 0.20
+    # ---- 制作人员：人是一行，三个模型接在后面当 CH 07/08/09 --------------------
+    # 导演（01:1x）：「三个模型也是『制作人员』，上面应该给一栏」——所以这一栏的抬头是
+    # CREW，人排在第一位（OPERATOR，它的"标志"就是那个从 GAME SET 一路留到现在的光标块），
+    # 三个模型是同一栏里的三条通道。
+    hd = at(0.82)
+    if hd > 0:
+        tk.text(d, (64, 268), "CREW", font(tk.MONO_B, 12), AMBER, 0.75 * hd)
+        tk.text(d, (128, 271), "制作人员", font(tk.CJK, 11), AMBER, 0.50 * hd)
+
+    rows = (("operator", None, "OPERATOR", "RedStar_ChinRinhan"),) +            tuple(("model", m, ch, nm) for (m, ch, nm) in _ROWS)
+
+    for i, (kind, mark, ch, name) in enumerate(rows):
+        u0 = 0.96 + i * 0.18
         a = at(u0, 0.18)
         if a <= 0.01:
             continue
-        y = 298 + i * 60
-        tk.text(d, (64, y + 20), ch, font(tk.MONO_B, 9), AMBER, 0.55 * a)
-        # 官方形状：宽高比是抽轮廓时量出来的，所以每个 logo 都按自己的比例放，不拉伸
-        aspect = logos.MARKS[mark][0]
-        if aspect >= 4.0:                 # 字标（MiMo）：按宽度吃满，高度自然小
-            lw, lh = _LOGO_CELL_W, _LOGO_CELL_W / aspect
+        y = 296 + i * 56
+        tk.text(d, (64, y + 18), ch, font(tk.MONO_B, 9), AMBER, 0.55 * a)
+        if kind == "operator":
+            # 人的标志：那个光标块。它从 GAME SET 卡一路留到现在，是全片唯一"还在等"的东西。
+            d.rectangle([132, y + 16, 150, y + 34], fill=fade(AMBER, 0.85 * a))
         else:
-            lh, lw = _LOGO_CELL_H, _LOGO_CELL_H * aspect
-        logos.draw(img, (132, y + (_LOGO_CELL_H - lh) / 2), mark,
-                   w=int(round(lw)), h=int(round(lh)), alpha=a)
-        _print(d, (132 + _LOGO_CELL_W + 18, y + 18), name, font(tk.MONO_B, 15),
-               mix(logos.COLOR[mark], AMBER, 0.35), 0.94 * a, at(u0, 0.20))
+            # 官方形状：宽高比是抽轮廓时量出来的，每个 logo 按自己的比例放，不拉伸
+            aspect = logos.MARKS[mark][0]
+            if aspect >= 4.0:                 # 字标（MiMo）：按宽度吃满，高度自然小
+                lw, lh = _LOGO_CELL_W, _LOGO_CELL_W / aspect
+            else:
+                lh, lw = _LOGO_CELL_H, _LOGO_CELL_H * aspect
+            logos.draw(img, (132, y + (_LOGO_CELL_H - lh) / 2), mark,
+                       w=int(round(lw)), h=int(round(lh)), alpha=a)
+        _print(d, (300, y + 16), name, font(tk.MONO_B, 15),
+               AMBER if kind == "operator" else mix(logos.COLOR[mark], AMBER, 0.35),
+               0.94 * a, at(u0, 0.20))
 
-    a2 = at(1.66)
+    a2 = at(1.70)
     if a2 > 0:
-        d.line([(64, 484), (700, 484)], fill=fade(AMBER, 0.18 * a2))
-    _print(d, (64, 504), "[ 谢谢收听 ]", font(tk.CJK, 13), AMBER, 0.55, at(1.80))
+        d.line([(64, 528), (700, 528)], fill=fade(AMBER, 0.18 * a2))
+    _print(d, (64, 546), "[ 谢谢收听 ]", font(tk.CJK, 13), AMBER, 0.55, at(1.84))
 
     # 一道扫描光扫过面板——这台机器"正在打印"
-    sc = at(2.05, 0.95)
+    sc = at(2.10, 0.95)
     if 0.0 < sc < 1.0:
-        y = 282 + sc * 240
+        y = 250 + sc * 290
         d.line([(64, y), (700, y)], fill=fade((255, 246, 224), 0.10 * math.sin(sc * math.pi)))
 
     img = post(img, 0.30)
