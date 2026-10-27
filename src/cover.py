@@ -154,39 +154,48 @@ def _sleeve(img, ax0, ay0, art_s, label_dy=26, big=False):
 
 # ---------------------------------------------------------------- 三种画幅
 def cover_wide(w: int = 1280, h: int = 720) -> Image.Image:
-    """16:9：左边标签面板，右边唱片套。"""
+    """16:9：左边标签面板，右边唱片套。
+
+    所有尺寸都乘 `k = h / 720`，所以 1280×720 和 1920×1080 是**同一版式原生的两种分辨率**
+    （B 站的「个人空间封面」要 16:9 的 1080p，用 720p 放大会糊，用这个函数直接渲）。
+    """
+    k = h / 720.0
+    S = lambda v: int(round(v * k))          # noqa: E731
     img = _bg(w, h)
     d = ImageDraw.Draw(img)
-    art_s = 560
-    ax0, ay0 = w - art_s - 64, (h - art_s) // 2 - 8
-    _sleeve(img, ax0, ay0, art_s)
+    art_s = S(560)
+    ax0, ay0 = w - art_s - S(64), (h - art_s) // 2 - S(8)
+    _sleeve(img, ax0, ay0, art_s, label_dy=S(26), big=k > 1.2)
 
-    x = 64
-    tk.text(d, (x, 92), "LASER KARAOKE  //  LD-1994", font(tk.MONO, 13), AMBER, 0.58)
-    _ticks(d, x, x + 470, 118, 24, 0.26)
+    x = S(64)
+    col = S(470)
+    tk.text(d, (x, S(92)), "LASER KARAOKE  //  LD-1994", font(tk.MONO, S(13)), AMBER, 0.58)
+    _ticks(d, x, x + col, S(118), 24, 0.26, hh=S(11))
 
-    tk.text(d, (x, 148), TITLE, font(CJK_B, 68), AMBER, 0.96)
-    tk.text(d, (x, 240), SUB, font(tk.CJK, 17), AMBER, 0.64)
+    tk.text(d, (x, S(148)), TITLE, font(CJK_B, S(68)), AMBER, 0.96)
+    tk.text(d, (x, S(240)), SUB, font(tk.CJK, S(17)), AMBER, 0.64)
 
-    d.line([(x, 286), (x + 470, 286)], fill=fade(AMBER, 0.22))
-    tk.text(d, (x, 300), TAGLINE, font(tk.CJK, 22), AMBER, 0.92)
-    tk.text(d, (x, 342), KIND, font(tk.CJK, 13), AMBER, 0.55)
-    tk.text(d, (x, 366), EN, font(tk.MONO, 11), AMBER, 0.40)
+    d.line([(x, S(286)), (x + col, S(286))], fill=fade(AMBER, 0.22))
+    tk.text(d, (x, S(300)), TAGLINE, font(tk.CJK, S(22)), AMBER, 0.92)
+    tk.text(d, (x, S(342)), KIND, font(tk.CJK, S(13)), AMBER, 0.55)
+    tk.text(d, (x, S(366)), EN, font(tk.MONO, S(11)), AMBER, 0.40)
 
     env = _envelope(120)
-    _wave(d, x, x + 470, 492, 66, env)
-    _ticks(d, x, x + 470, 496, 24, 0.22, hh=9)
-    tk.text(d, (x, 520), "SIGNAL  /  6:35  /  120 BANDS", font(tk.MONO, 11), AMBER, 0.38)
+    _wave(d, x, x + col, S(492), S(66), env)
+    _ticks(d, x, x + col, S(496), 24, 0.22, hh=S(9))
+    tk.text(d, (x, S(520)), "SIGNAL  /  6:35  /  120 BANDS", font(tk.MONO, S(11)), AMBER, 0.38)
 
-    d.line([(x, 578), (x + 470, 578)], fill=fade(AMBER, 0.16))
-    tk.text(d, (x, 592), "STAFF", font(tk.MONO_B, 12), AMBER, 0.55)
-    tk.text(d, (x + 74, 588), "RedStar_ChinRinhan", font(tk.MONO_B, 17), AMBER, 0.88)
-    tk.text(d, (x, 626), MODELS, font(tk.MONO, 11), AMBER, 0.40)
+    d.line([(x, S(578)), (x + col, S(578))], fill=fade(AMBER, 0.16))
+    tk.text(d, (x, S(592)), "STAFF", font(tk.MONO_B, S(12)), AMBER, 0.55)
+    tk.text(d, (x + S(74), S(588)), "RedStar_ChinRinhan", font(tk.MONO_B, S(17)), AMBER, 0.88)
+    tk.text(d, (x, S(626)), MODELS, font(tk.MONO, S(11)), AMBER, 0.40)
 
     chip = "[ PLAY ]"
-    cw = d.textlength(chip, font=font(tk.MONO_B, 12))
-    d.rectangle([x + 470 - cw - 16, 588, x + 470 + 4, 614], outline=fade(AMBER, 0.45))
-    tk.text(d, (x + 470 - cw - 8, 592), chip, font(tk.MONO_B, 12), AMBER, 0.80)
+    f_chip = font(tk.MONO_B, S(12))
+    cw = d.textlength(chip, font=f_chip)
+    d.rectangle([x + col - cw - S(16), S(588), x + col + S(4), S(614)],
+                outline=fade(AMBER, 0.45))
+    tk.text(d, (x + col - cw - S(8), S(592)), chip, f_chip, AMBER, 0.80)
 
     img = _grain(img, 4.0)
     img = _scanlines(img, 0.08, 3)
@@ -276,6 +285,7 @@ def _save(img: Image.Image, path: Path) -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, im in (("cover-16x9.png", cover_wide()),
+                     ("cover-16x9-hd.png", cover_wide(1920, 1080)),
                      ("cover-4x3.png", cover_4x3()),
                      ("cover-1x1.png", cover_1x1())):
         _save(im, OUT / name)
