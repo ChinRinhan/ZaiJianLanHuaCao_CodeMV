@@ -726,6 +726,8 @@ def black_frame(t: float, cursor_on: bool = True, thanks: bool = False, thanks_a
 # 为什么不做成"片尾滚动字幕"：这片子从头到尾是一台 1994 年激光卡拉OK机的界面，所以 credits
 # 是**这台机器打印出来的最后一段系统信息**——等宽字、琥珀色、`>` 提示符、逐字打出。
 # 三个模型接在 CH 1–6 后面，是 CH 07/08/09：人是操作员，模型是通道。
+_LOGO_CELL_W, _LOGO_CELL_H = 150, 52
+
 CREDITS_T0 = 390.45
 CREDITS_OUT0, CREDITS_OUT1 = 394.50, 395.10
 
@@ -772,8 +774,15 @@ def credits_frame(t: float):
             continue
         y = 298 + i * 60
         tk.text(d, (64, y + 20), ch, font(tk.MONO_B, 9), AMBER, 0.55 * a)
-        logos.draw(img, (128, y), mark, px=4, alpha=a)
-        _print(d, (252, y + 18), name, font(tk.MONO_B, 15),
+        # 官方形状：宽高比是抽轮廓时量出来的，所以每个 logo 都按自己的比例放，不拉伸
+        aspect = logos.MARKS[mark][0]
+        if aspect >= 4.0:                 # 字标（MiMo）：按宽度吃满，高度自然小
+            lw, lh = _LOGO_CELL_W, _LOGO_CELL_W / aspect
+        else:
+            lh, lw = _LOGO_CELL_H, _LOGO_CELL_H * aspect
+        logos.draw(img, (132, y + (_LOGO_CELL_H - lh) / 2), mark,
+                   w=int(round(lw)), h=int(round(lh)), alpha=a)
+        _print(d, (132 + _LOGO_CELL_W + 18, y + 18), name, font(tk.MONO_B, 15),
                mix(logos.COLOR[mark], AMBER, 0.35), 0.94 * a, at(u0, 0.20))
 
     a2 = at(1.66)
