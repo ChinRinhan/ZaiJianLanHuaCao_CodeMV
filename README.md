@@ -9,6 +9,7 @@
 
 | | |
 |---|---|
+| **看片** | **[B 站 BV1fAx36cEMP](https://www.bilibili.com/video/BV1fAx36cEMP/)** |
 | 成片 | `out/film-v2.mp4` · 1280×720 / 24 fps / 395.667 s |
 | 4K | `python src/build.py 4k` → `out/film_4k.mp4` · 3840×2160（3× 最近邻放大）|
 | 封面 | `assets/` 里 16:9 / 4:3 / 1:1 三种比例 |
