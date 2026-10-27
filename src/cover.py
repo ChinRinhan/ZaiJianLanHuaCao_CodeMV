@@ -56,8 +56,8 @@ def _envelope(n: int = 128):
 
     封面上的那道波形不是装饰——它是这 6:35 的实际响度曲线，和片子里每条曲线一样是量出来的。
     """
-    ff = ROOT / "tools" / "ffmpeg.exe"
-    raw = subprocess.run([str(ff), "-v", "error", "-i", str(ROOT / "input" / "song.flac"),
+    from media import FFMPEG as ff
+    raw = subprocess.run([ff, "-v", "error", "-i", str(ROOT / "input" / "song.flac"),
                           "-ac", "1", "-ar", "4000", "-f", "s16le", "-"],
                          capture_output=True, check=True).stdout
     a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0

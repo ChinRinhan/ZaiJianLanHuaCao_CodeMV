@@ -30,8 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = Path(__file__).resolve().parent
-FF = ROOT / "tools" / "ffmpeg.exe"
-FP = ROOT / "tools" / "ffprobe.exe"
+from media import FFMPEG as FF, FFPROBE as FP  # noqa: E402  tools/ 里没有就用 PATH
 SONG = ROOT / "input" / "song.flac"
 PARTS = ROOT / "out" / "parts"
 MASTER = ROOT / "out" / "film-v2.mp4"

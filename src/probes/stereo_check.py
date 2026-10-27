@@ -11,7 +11,7 @@ import numpy as np
 from scipy.signal import stft
 
 ROOT = Path(__file__).resolve().parents[2]
-FF = ROOT / "tools" / "ffmpeg.exe"
+from media import FFMPEG as FF  # noqa: E402
 SRC = ROOT / "input" / "song.flac"
 OUT = ROOT / "data" / "audio" / "stereo22050.wav"
 OUT.parent.mkdir(parents=True, exist_ok=True)

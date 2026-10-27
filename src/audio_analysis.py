@@ -16,7 +16,7 @@ import numpy as np
 from scipy.signal import stft
 
 ROOT = Path(__file__).resolve().parents[1]
-FFMPEG = ROOT / "tools" / "ffmpeg.exe"
+from media import FFMPEG  # noqa: E402
 FLAC = ROOT / "input" / "song.flac"
 LRC = ROOT / "input" / "lyrics.lrc"
 AUD = ROOT / "data" / "audio"

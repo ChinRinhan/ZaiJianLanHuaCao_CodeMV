@@ -11,7 +11,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FF = ROOT / "tools" / "ffmpeg.exe"
+from media import FFMPEG as FF  # noqa: E402
 SRC = ROOT / "input" / "song.flac"
 FPS = 24
 

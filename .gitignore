@@ -15,3 +15,13 @@ __pycache__/
 .scratch/
 # 逐帧的合唱人数曲线（350 KB，没有代码读它）——摘要进 data/voice_count.json
 data/voice_count_curve.json
+
+# 外部二进制不进仓库（169 MB 一个，GitHub 单文件上限 100 MB）：
+# 用 tools/ 里自带的，或者装到 PATH 里（见 src/media.py）
+tools/*.exe
+tools/*.dll
+
+# 歌曲与歌词是版权素材，不进仓库（见 NOTICE.md / input/README.md）：
+input/*.flac
+input/*.mp3
+input/*.lrc
