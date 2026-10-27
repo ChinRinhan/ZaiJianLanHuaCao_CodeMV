@@ -29,7 +29,7 @@ pip install numpy pillow
 必须是 **395.666667 s** 那一版——时间轴、逐字起音、逐句响度全是从这份音频量出来的，
 时长差一点，每一句都会错位。详见 [input/README.md](input/README.md)。
 
-**② 出片**：
+**② 出片**（`data/audio/*.npy` 已经在仓库里，所以除了歌曲不需要再准备别的）：
 
 ```bash
 python src/build.py status      # 七层楼在不在
@@ -60,7 +60,8 @@ cd src && python -c "import scene4; scene4.frame(273.5).save('../out/x.png')"
 │   ├── timeline.json      段落 + 行级时间，全片唯一时间真源
 │   ├── word_times*.json   逐字时间（v2 = 实测 onset）
 │   ├── backing_vocal*.json 合唱人数与和声相对电平（原曲 17 轨分轨量出来的）
-│   └── audio/             人声分轨、频谱带、谱通量（可由脚本重建）
+│   └── audio/             rms / flux / 24 段频谱带 / 四条分轨包络（8 个 .npy，2.0 MB，已进仓库——
+│                          渲染必需；只有 wav 与 htdemucs 权重不进）
 ├── src/                   源码
 │   ├── scene4.py          帧函数（纯函数，全片的入口）
 │   ├── layout4.py         四区版式与所有画面元素

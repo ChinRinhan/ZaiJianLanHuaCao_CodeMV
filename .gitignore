@@ -1,7 +1,8 @@
 .venv-audio/
 .vendor/
 out/
-data/audio/*.npy
+# data/audio/*.npy 进仓库（8 个文件共 2.0 MB）：它们是渲染必需的分析结果，
+# 不进仓库的话克隆下来连一帧都渲不出来（要自备歌曲重跑 audio_analysis 才行）。
 data/audio/*.wav
 data/audio/stems_wav/
 data/models/
