@@ -782,12 +782,15 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         rise_amt = _ramp(t, [(188.0, 0.0), (191.0, 0.75), (206.0, 1.0), (210.0, 1.0),
                              (213.0, 0.0)])
         ripple = 0.0 if t >= 210.0 else climb * (0.25 + 0.55 * drive.bass(t))
+        # 3:50 之后这一段有自己的语言（钉墙），螺旋要退到背景里去：
+        # 两套形状同时占着世界中心，谁也不是主角，观众只会看到"东西很多"。
         spiral = 0.0 if t < 210.0 else _ramp(t, [(210.0, 0.0), (216.0, 0.55), (224.0, 1.0),
-                                                 (236.0, 1.0), (245.79, 0.92)])
+                                                 (229.0, 1.0), (231.6, 0.18), (245.79, 0.14)])
         solo_kw = {"rise": rise_amt, "rise_steps": RISE_STEPS,
                    "ripple": ripple, "spiral": spiral, "bright": hi,
-                   # 3:10–3:32：贝斯在阶梯脚下的地面上走（音高 41–59，实测 42 个起音）
-                   "bass": _ramp(t, [(190.0, 0.0), (196.0, 1.0), (210.0, 1.0), (213.0, 0.0)]),
+                   # 3:10–3:32：贝斯已经升格成 stage 里的"走格"（instruments._walk_grid），
+                   # 地面上那条小台阶就不画了——同一件乐器画两遍，观众只会看到两次抖动。
+                   "bass": 0.0,
                    "bass_notes": score3.BASS}
         amp_scale *= 0.55 + 0.60 * climb          # 山脊跟着爬，顶点 1.12
         # 亮度：3:30 之前只允许"脉冲"（吉他每打一下一闪），过了 3:32 才允许"常亮"。
@@ -911,6 +914,10 @@ def _stage_kw(t, sid):
         "kind": sid,
         "notes": score3.NOTES,
         "alt": (_CANON_DUET if sid == "duet" else _CANON) if sid in ("piano", "duet") else None,
+        # 贝斯段 / 最后一波各自的主角：实测 onset 表直接交给 stage，
+        # 不在这里算任何形状——放大视图只负责"把这一段画成它的乐器"。
+        "bass": score3.BASS,
+        "drum": score3.DRUM,
         "live": live,
         "solo": MOVE_SOLO.get(sid),
         "mv": mv,

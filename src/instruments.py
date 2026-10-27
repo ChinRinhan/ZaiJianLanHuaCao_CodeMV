@@ -805,9 +805,97 @@ def _string_line(img, box, t, notes, *, lo: int, hi: int, lead: float = 3.0,
            fill=fade(INK, 0.42 * alpha))
 
 
+# ---------------------------------------------------------------- the bass walks
+def _walk_grid(img, box, t, notes, *, t0: float, t1: float, lo: int = 38, hi: int = 62,
+               span: float = 6.0, alpha: float = 1.0):
+    """贝斯段（3:10–3:32）的放大视图：把地面上那条"横着走"放大成一张走格。
+
+    横向是时间（近 6 s 一直往左推），纵向是音高行。贝斯不敲、不跳，它**踱**：每个音是同一行
+    上的一小段横线，换音才竖着抬一行，所以读起来是"走"，不是"弹"——和吉他的阶梯（纵向爬升）
+    同一条时间轴、两个方向，这是导演 06:18 定的"对答"，这里只是把它放大到看得清。
+    """
+    if alpha <= 0.01 or not notes or t < t0 - 1.0:
+        return
+    x0, y0, x1, y1 = box
+    _panel(img, box, AMBER, alpha, title="BASS // WALK", right="%d STEPS" % len(notes))
+    d = ImageDraw.Draw(img)
+    ix0, iy0, ix1, iy1 = x0 + 10, y0 + 16, x1 - 10, y1 - 10
+    rows = max(1, hi - lo)
+    rh = (iy1 - iy0) / rows
+    for m in range(lo, hi + 1):
+        yy = iy1 - (m - lo) * rh
+        if m % 4 == 0:
+            d.line([(ix0, yy), (ix1, yy)], fill=fade(BLUE_HI, 0.10 * alpha))
+            d.text((ix0 + 2, yy - 7), "%d" % m, font=font(tk.MONO, 6),
+                   fill=fade(BLUE_HI, 0.24 * alpha))
+
+    win = [n for n in notes if t - span <= n[0] <= t + 0.35]
+
+    def X(tn):
+        return ix0 + (ix1 - ix0) * max(0.0, min(1.0, (tn - (t - span)) / span))
+
+    def Y(m):
+        return iy1 - (max(lo, min(hi, m)) - lo) * rh
+
+    pts = [(X(n[0]), Y(n[1])) for n in win]
+    if len(pts) >= 2:
+        path = [pts[0]]
+        for a, b in zip(pts, pts[1:]):
+            path.append((b[0], a[1]))          # 横向踱一步
+            path.append(b)                      # 换台阶
+        d.line(path, fill=fade(AMBER, 0.85 * alpha), width=2)
+    if pts:
+        hx, hy = pts[-1]
+        d.line([(hx, iy0), (hx, iy1)], fill=fade(AMBER, 0.16 * alpha))
+        d.ellipse([hx - 3.5, hy - 3.5, hx + 3.5, hy + 3.5], fill=fade(AMBER, alpha))
+
+
+# ---------------------------------------------------------------- the last wave
+def _pin_wall(img, box, t, hits, *, t0: float, t1: float, alpha: float = 1.0):
+    """最后一波（3:50–4:05.8）的放大视图：钉墙。
+
+    先试过"峰值保持"（每小节取最大力度画条），量了才发现这一段**每一小节的最大力度都是
+    1.00**——条形图会变成一片均匀的琥珀，什么也没说。这一段真正的性格是**不回落**：
+    所以每一次重击钉一根钉子，钉进去就不拔，钉子越钉越密，到 04:05.8 整块钉满；
+    最后两下（实测只剩 2 记）留下空隙，B② 一刀切进来。顶住 = 钉子还在，不是表还在。
+    """
+    if alpha <= 0.01 or t < t0 - 1.0:
+        return
+    x0, y0, x1, y1 = box
+    seg = [h for h in hits if t0 <= h[0] < t1]
+    _panel(img, box, AMBER, alpha, title="LAST // PINNED", right="%d HITS" % len(seg))
+    d = ImageDraw.Draw(img)
+    ix0, iy0, ix1, iy1 = x0 + 10, y0 + 22, x1 - 10, y1 - 14
+    # 上下两条导轨：钉子从天花板钉到地板，两头都要有东西接着
+    for yy in (iy0, iy1):
+        d.line([(ix0, yy), (ix1, yy)], fill=fade(AMBER, 0.45 * alpha), width=1)
+    d.text((ix0 + 2, iy0 - 12), "CEIL", font=font(tk.MONO, 6), fill=fade(AMBER, 0.30 * alpha))
+    d.text((ix0 + 2, iy1 + 3), "FLOOR", font=font(tk.MONO, 6), fill=fade(AMBER, 0.30 * alpha))
+    n = 0
+    for (tn, _m, s) in seg:
+        if tn > t:
+            break
+        n += 1
+        x = ix0 + (ix1 - ix0) * (tn - t0) / (t1 - t0)
+        a = (0.26 + 0.52 * s) * alpha
+        d.line([(x, iy0 + 1), (x, iy1 - 1)], fill=fade(AMBER, a), width=2)
+        d.ellipse([x - 2, iy0 + 1, x + 2, iy0 + 5], fill=fade(AMBER, min(1.0, a * 1.5)))
+    # 钉子正在往下钉的那一列：钉头有个亮点，画面才知道"现在在哪儿"
+    if n:
+        xx = ix0 + (ix1 - ix0) * (min(t, t1) - t0) / (t1 - t0)
+        d.line([(xx, iy0), (xx, iy1)], fill=fade((255, 246, 224), 0.22 * alpha), width=1)
+    # 钉满 = PINNED（这一段没有"回落"这回事）
+    if len(seg) and n >= 0.97 * len(seg):
+        d.text((ix1 - 46, y0 + 6), "PINNED", font=font(tk.MONO, 8),
+               fill=fade((255, 110, 90), 0.95 * alpha))
+    d.text((ix1 - 96, y1 - 10), "DENSITY %3d/%3d" % (n, len(seg)), font=font(tk.MONO, 6),
+           fill=fade(AMBER, 0.34 * alpha))
+
+
 # ---------------------------------------------------------------- the whole stage
 def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
-          alt=None, alpha: float = 1.0, solo: str | None = None, mv=(0.0, 0.0)):
+          alt=None, alpha: float = 1.0, solo: str | None = None, mv=(0.0, 0.0),
+          bass=None, drum=None):
     """The enlarged view in the world. The roster is NOT here — it is the six lanes."""
     """The interlude's picture: rack + roll + keyboard, in the content zone.
 
@@ -861,17 +949,34 @@ def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
             tail = [n for n in (alt or []) if t - 1.4 <= n[0] <= t + 0.5]
             _string_line(img, roll_box, t, tail, lo=lo, hi=hi, lead=3.0,
                          alpha=a_kb * max(0.0, ent))
-        # the movement read-out, in the top strip: where we are, in machine words. The
-        # note counter is the machine keeping score of what the band has played so far —
-        # the only number in this shot that is allowed to climb.
+    elif kind == "bass":
+        # 3:10–3:32：贝斯段。地面那条小台阶放大成一张走格（同一套动作，放大到看得清）。
+        a_w = (max(0.0, min(1.0, (t - 188.8) / 1.2))
+               * (1.0 - max(0.0, min(1.0, (t - 211.4) / 1.2))))
+        _walk_grid(img, (KX0, y0 + 96, KX1, y0 + 392), t, bass or [],
+                   t0=190.0, t1=212.0, lo=40, hi=60, alpha=alpha * a_w)
+    elif kind == "last":
+        # 3:50–4:05.8：最后一波。钉墙——钉进去不拔，钉满就 PINNED。
+        a_l = (max(0.0, min(1.0, (t - 229.0) / 1.2))
+               * (1.0 - max(0.0, min(1.0, (t - 244.4) / 1.2))))
+        _pin_wall(img, (KX0, y0 + 96, KX1, y0 + 392), t, drum or [],
+                  t0=230.0, t1=245.79, alpha=alpha * a_l)
+
+    # the movement read-out, in the top strip: where we are, in machine words. The note
+    # counter is the machine keeping score of what the band has played so far —
+    # the only number in this shot that is allowed to climb.
+    # Only the movements that own a stage print it: `boutro`/`roar` draw no cell here, and a
+    # floating line of text with nothing under it reads as a rendering bug.
+    if kind in ("piano", "duet", "bass", "last"):
         f = font(tk.MONO, 9)
         bi = clock.beat_index(t)
-        done = sum(1 for n in notes if mv[0] <= n[0] <= t)
-        tot = sum(1 for n in notes if mv[0] <= n[0] < mv[1])
+        mine = bass if kind == "bass" else (drum if kind == "last" else notes)
+        done = sum(1 for n in mine if mv[0] <= n[0] <= t)
+        tot = sum(1 for n in mine if mv[0] <= n[0] < mv[1])
         line = ("%s  ·  BAR %d.%d  ·  NOTES %03d/%03d  ·  112.35 BPM"
                 % (kind.upper(), bi // 4 + 1, bi % 4 + 1, done, tot))
         d.text((KX0, y0 + 12), line, font=f, fill=fade(AMBER, 0.42 * alpha))
-        if alt:
+        if alt and kind in ("piano", "duet"):
             d.text((KX0, y0 + 26), "CANON +7 st / 1 beat  ·  d = 0.534 s", font=f,
                    fill=fade(BLUE_HI, 0.30 * alpha))
 
