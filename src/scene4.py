@@ -1164,9 +1164,10 @@ def _chorus_state(t):
         # 但 alpha 也不能在句首归零：上一句的光还在，人只是换了一句词。
         if g_in > 0.5:
             a = max(a, 0.85)
+        dyn = _chorus_dynamics(t, t0, t1, rel)
         return {"gather": g, "alpha": a, "cos": _chorus_cos(t), "voices": n,
                 "text": text, "rel_db": rel, "line_t0": t0, "line_t1": t1,
-                "roster": _roster_state(t, n)}
+                "roster": _roster_state(t, n), **dyn}
 
     # --- between lines: hold the previous line's gathered chord --------------------
     prev = voices.prev_line_before(t)
@@ -1184,13 +1185,62 @@ def _chorus_state(t):
             "voices": int(prev["voices"]), "text": prev["text"],
             "rel_db": float(prev["rel_db"]),
             "line_t0": prev["t0"], "line_t1": prev["t1"],
-            "roster": _roster_state(t, int(prev["voices"]))}
+            "roster": _roster_state(t, int(prev["voices"])),
+            # 换气的空隙：没有字在唱，所以没有脉动、没有行波；粗细保持上一句的。
+            "pulse": 0.0,
+            "level": max(0.0, min(1.0, (float(prev["rel_db"]) + 7.0) / 10.0)),
+            "wave_pos": 0.0, "wave_str": 0.0}
 
 
 # 六人点名：A② 一开口就逐个点亮（导演拍板「点名应该在 A② 的头一句上点完」）。
 # 之后每句的人数变了，格子就跟着变 —— 这是"这句谁在唱"，不是"满员了"。
 ROSTER_OPEN = CHORUS_T0 + 0.15          # 第一格亮起
 ROSTER_STEP = 0.22                       # 每格间隔：1.32 s 点完六个
+
+# ---- 线束的动态：它得跟着唱，不能只做"舒张" -------------------------------------------
+# 导演（22:39）：「线束的表现力其实没有那么强……没有更强烈的突出来。线束只有舒张动态」。
+# 说得准：之前它只会"散开→收拢"一件事，是合唱的**示意图**，不是六个人在唱。
+#
+# 三种新动态，全部由**实测数据**驱动，不是自由动画：
+#
+# 1. **脉动**（pulse）：每个字的实测起音让整束光闪一下。字是量出来的
+#    （`data/word_times_v2.json`，逐字起音），所以闪的节奏就是唱词的节奏。
+# 2. **粗细**（level）：那一句的实测响度（`rel_db`）决定光带多粗。A④ 首句 +2.5 dB 比
+#    A② 第 5 句 −6.9 dB 粗得多 —— 观众看到的是"这句唱得更响"，不是装饰。
+# 3. **行波**（wave）：每个字起音发出一道亮波，从画外沿光带**流向汇聚点**。
+#    声音从人嘴里出来、汇到同一点 —— 这是"收敛"这个动作真正该有的动感。
+PULSE_DECAY = 0.17                       # 一个字的光衰时长（秒）
+WAVE_TRAVEL = 0.42                       # 一道波从起点走到汇聚点的时间
+
+
+def _chorus_dynamics(t: float, t0: float, t1: float, rel: float):
+    """Pulse / thickness / travelling wave, all driven by measured data."""
+    # --- level: 实测响度 → 0..1。全片合唱段实测区间是 −6.9 ~ +3.2 dB。
+    level = max(0.0, min(1.0, (float(rel) + 7.0) / 10.0))
+
+    # --- pulse: 最近一个字起音之后多久了
+    onsets = voices.char_onsets(t0)
+    pulse = 0.0
+    wave_pos, wave_str = 0.0, 0.0
+    if onsets:
+        # the last onset at or before t
+        last = None
+        for o in onsets:
+            if o <= t:
+                last = o
+            else:
+                break
+        if last is not None:
+            age = t - last
+            if age <= PULSE_DECAY:
+                # sharp attack, smooth decay: the syllable lands, then the light fades
+                pulse = (1.0 - age / PULSE_DECAY) ** 1.4
+            # the travelling wave: starts at the left edge, reaches the gather point
+            if age <= WAVE_TRAVEL:
+                wave_pos = min(1.0, age / WAVE_TRAVEL)
+                wave_str = (1.0 - wave_pos) ** 0.8
+    return {"pulse": pulse, "level": level,
+            "wave_pos": wave_pos, "wave_str": wave_str}
 
 
 def _roster_state(t: float, nv: int):

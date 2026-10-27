@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _PATH = ROOT / "data" / "backing_vocal.json"
 _PATH_FULL = ROOT / "data" / "backing_vocal_full.json"
 _PATH_TAIL = ROOT / "data" / "backing_vocal_tail.json"
+_PATH_WORDS = ROOT / "data" / "word_times_v2.json"
 
 # 和声相对电平 → 画几层。分界是**量出来的**：B① 四句是 −8.6 ~ −9.8 dB（一个人），
 # B② 是 −7.4 / −6.6 / −6.3 / −5.0 dB（合唱在涌上来）。所以 −8.5 以下 = 一个人，
@@ -70,6 +71,34 @@ _FULL = _load_full()
 _TAIL = _load_tail()
 if _TAIL:
     _FULL = (_FULL or []) + _TAIL
+
+
+def _load_words():
+    try:
+        return json.loads(_PATH_WORDS.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+_WORDS = _load_words()
+
+
+def char_onsets(t0: float):
+    """The per-character onset times of the sung line that starts at `t0`.
+
+    From `data/word_times_v2.json` — the measured onsets of every character (probe:
+    `src/probes/align_chars.py`). The chorus uses them to make the light bands **sing**:
+    without this the bands only have one dynamic (spread out / gather in), which reads as
+    a diagram of the chorus rather than as six people singing it.
+
+    Returns [] when the line is not in the table.
+    """
+    if not _WORDS:
+        return []
+    for row in _WORDS.get("lines", []):
+        if abs(float(row.get("t0", -1)) - t0) < 0.02:
+            return [float(x) for x in row.get("times", [])]
+    return []
 
 
 def line_at(t: float):

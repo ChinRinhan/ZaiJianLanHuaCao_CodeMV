@@ -1534,48 +1534,71 @@ def _b2_voices(img: Image.Image, rect, st) -> None:
 
 
 def _ribbon(img: Image.Image, pts, color, *, half: float = 6.0, core: float = 0.42,
-            alpha: float = 1.0) -> None:
-    """A soft band of light along a path.
+            alpha: float = 1.0, hot=None, hot_frac: float = 0.36) -> None:
+    """A soft band of light along a path — coloured shell with a white-hot core.
 
     The chorus needs to read as **light**, not as a line. This world is full of 1-px
     strokes — the three ridge rim-lights alone are enough to hide a thin chorus line
     under them — so a voice is drawn as a band with a bright core and soft shoulders.
 
+    `hot` draws a second, narrower band in that colour on top of the shell. That is what
+    makes it read as a **neon tube** rather than as a tinted stripe: the eye latches onto
+    the hot core, and the film's own bloom (`tk.post`) picks it up and glows it. Without
+    the hot core the bands sat at the same brightness as the mountains and disappeared
+    into them — the director's note was 「表现力没有那么强……没有更强烈的突出来」.
+
     Implementation: the band is rendered into its own **alpha mask**, one column per
     x, and composited once. (Painting the pixels directly gave a staircase: each
     column's band was a whole number of pixels tall, so the edges stepped.)
-    The mask's value per pixel is the falloff from the centre line, which makes a
-    continuous band with no hard edges.
     """
     if alpha <= 0.01 or len(pts) < 2:
         return
     half = max(1.0, float(half))
-    span = int(half * 3)
-    mask = Image.new("L", img.size, 0)
-    md = ImageDraw.Draw(mask)
-    for (x0p, y0p), (x1p, y1p) in zip(pts, pts[1:]):
-        x0i, x1i = int(round(x0p)), int(round(x1p))
-        if x1i == x0i:
-            x1i = x0i + 1
-        for x in range(x0i, x1i + 1):
-            u = (x - x0p) / max(1e-6, (x1p - x0p))
-            yc = y0p + (y1p - y0p) * u
-            # soft shoulders: full brightness inside the core, then a smooth falloff
-            lo = yc - half * core
-            hi = yc + half * core
-            md.rectangle([x, lo, x, hi], fill=255)
-            # the shoulders: three steps of decreasing value, so the edge is soft
-            for k in range(1, 4):
-                off = half * (core + (1.0 - core) * k / 3.0)
-                v = int(255 * (1.0 - k / 3.0) ** 1.6)
-                md.rectangle([x, yc - off, x, lo], fill=v)
-                md.rectangle([x, hi, x, yc + off], fill=v)
-    band = Image.new("RGB", img.size, color)
-    # the core stays solid; only the shoulders fade with `alpha` — otherwise a low alpha
-    # dims the whole band and the voice stops reading as light at all
-    img.paste(band, (0, 0), mask)
-    img.paste(band, (0, 0), mask.point(
+
+    # Work in the path's **bounding box**, not the whole canvas: a full-size mask per
+    # call cost 200+ ms/frame with six voices (three passes each), which made a floor
+    # take ten minutes to render.
+    W, H = img.size
+    pad = int(half * 3) + 2
+    bx0 = max(0, int(min(p[0] for p in pts)) - pad)
+    bx1 = min(W, int(max(p[0] for p in pts)) + pad + 1)
+    by0 = max(0, int(min(p[1] for p in pts)) - pad)
+    by1 = min(H, int(max(p[1] for p in pts)) + pad + 1)
+    bw, bh = bx1 - bx0, by1 - by0
+    if bw <= 0 or bh <= 0:
+        return
+
+    def _band_mask(hw: float, core_frac: float) -> Image.Image:
+        m = Image.new("L", (bw, bh), 0)
+        md = ImageDraw.Draw(m)
+        for (x0p, y0p), (x1p, y1p) in zip(pts, pts[1:]):
+            x0i, x1i = int(round(x0p)), int(round(x1p))
+            if x1i == x0i:
+                x1i = x0i + 1
+            for x in range(max(x0i, bx0), min(x1i, bx1 - 1) + 1):
+                u = (x - x0p) / max(1e-6, (x1p - x0p))
+                yc = y0p + (y1p - y0p) * u - by0
+                lo = yc - hw * core_frac
+                hi = yc + hw * core_frac
+                xl = x - bx0
+                md.rectangle([xl, lo, xl, hi], fill=255)
+                # the shoulders: three steps of decreasing value, so the edge is soft
+                for k in range(1, 4):
+                    off = hw * (core_frac + (1.0 - core_frac) * k / 3.0)
+                    v = int(255 * (1.0 - k / 3.0) ** 1.6)
+                    md.rectangle([xl, yc - off, xl, lo], fill=v)
+                    md.rectangle([xl, hi, xl, yc + off], fill=v)
+        return m
+
+    shell = Image.new("RGB", (bw, bh), color)
+    m0 = _band_mask(half, core)
+    img.paste(shell, (bx0, by0), m0)
+    img.paste(shell, (bx0, by0), m0.point(
         lambda v: int(v * alpha) if v < 255 else int(255 * min(1.0, alpha * 1.6))))
+    # the hot core: narrow, near-white, always full strength — this is what blooms
+    if hot is not None:
+        m1 = _band_mask(half * hot_frac, 0.62)
+        img.paste(Image.new("RGB", (bw, bh), hot), (bx0, by0), m1)
 
 
 def _chorus_roster(img: Image.Image, rect, st) -> None:
@@ -1708,7 +1731,26 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
         # 画法：沿路径生成一个**有宽度的多边形**，里面按到中心线的距离做软边渐变
         # （中心最亮，两侧渐隐）——是一条连续的光带，不是几条并排的线。
         va = a * (0.72 + 0.28 * g)
-        _ribbon(img, pts, col, half=3.4, core=0.40, alpha=va)
+        # --- 三种动态（导演 22:39：线束只有"舒张"，没有表现力）-------------------
+        # 粗细：那一句的实测响度。A④ 首句 +2.5 dB 比 A② 第 5 句 −6.9 dB 粗得多。
+        level = float(st.get("level", 0.5))
+        half = 2.8 + 3.4 * level
+        # 脉动：每个字的实测起音让整束光闪一下。闪的是**芯的温度**——琥珀色的芯在字落下的
+        # 一瞬烧成近白，然后退回琥珀。比调 alpha 有效：芯是实色的，alpha 只影响边缘。
+        pulse = float(st.get("pulse", 0.0))
+        hot = mix((255, 214, 150), (255, 255, 250), 0.35 + 0.65 * pulse)
+        _ribbon(img, pts, col, half=half, core=0.40, alpha=va, hot=hot)
+        # 行波：每个字发出一道亮波，沿光带流向汇聚点。声音从嘴里出来、汇到同一点。
+        # 用**宽而软**的一段，不是一根白条——白条读成"一条白线"，软波才读成"一道光在走"。
+        wstr = float(st.get("wave_str", 0.0))
+        if wstr > 0.03:
+            wpos = float(st.get("wave_pos", 0.0))
+            n_pts = len(pts)
+            c = int(wpos * (n_pts - 1))
+            lo, hi = max(0, c - 5), min(n_pts - 1, c + 5)
+            if hi - lo >= 2:
+                _ribbon(img, pts[lo:hi + 1], col, half=half * 1.8, core=0.30,
+                        alpha=0.55 * wstr * a, hot=(255, 252, 240), hot_frac=0.30)
 
         d.ellipse([head[0] - 4, head[1] - 4, head[0] + 4, head[1] + 4],
                   fill=fade(col, min(1.0, va + 0.30)))
@@ -1728,9 +1770,22 @@ def _chorus_converge(img: Image.Image, rect, st) -> None:
     # the gathered voice: one line, solid, and the number we measured
     if g > 0.50:
         ga = (g - 0.50) / 0.50
-        # 收成一条时带宽也要涨：那不再是一个声部，是六个人叠在一起的**一根光柱**
+        # 收成一条时带宽也要涨：那不再是一个声部，是六个人叠在一起的**一根光柱**。
+        # 光柱也跟着字脉动、也跟着那一句的响度变粗——"六个人同时唱"这件事要在
+        # 这根柱子上看得见，否则它只是一条静止的横线。
+        lvl = float(st.get("level", 0.5))
+        puls = float(st.get("pulse", 0.0))
+        beam_hot = mix((255, 224, 170), (255, 255, 255), 0.4 + 0.6 * puls)
         _ribbon(img, [(ex, mid), (x0 + w * 0.92, mid)], AMBER,
-                half=1.8 + 3.4 * ga, core=0.44, alpha=0.95 * ga * a)
+                half=(1.8 + 3.4 * ga) * (0.85 + 0.45 * lvl),
+                core=0.44, alpha=0.95 * ga * a, hot=beam_hot, hot_frac=0.34)
+        # 汇聚点：每个字砸下来时，那里爆一下 —— 这是"六个人收到了一起"的那一下
+        if puls > 0.03:
+            r = 6 + 16 * puls * ga
+            d.ellipse([ex - r, mid - r, ex + r, mid + r],
+                      fill=fade((255, 250, 236), 0.55 * puls * ga * a))
+            d.ellipse([ex - r * 0.45, mid - r * 0.45, ex + r * 0.45, mid + r * 0.45],
+                      fill=fade((255, 255, 255), 0.80 * puls * ga * a))
         f = font(tk.MONO_B, 11)
         d.text((ex + 12, mid - 14), "WE", font=f, fill=fade(AMBER, 0.95 * ga * a))
     if g > 0.68:
