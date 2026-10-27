@@ -64,7 +64,7 @@ PLAYLIST = [
 
 
 def zones(collapse: float = 0.0, mode: str = "W", cell: float = 0.0,
-          cell_px: float = 0.0, status=None, dial=None):
+          cell_px: float = 0.0, status=None, dial=None, entity_out: float = 0.0):
     """The four zones, and the three shot modes that re-weight them.
 
     W  the full machine: entity left, world right, ops column, token band.
@@ -101,6 +101,15 @@ def zones(collapse: float = 0.0, mode: str = "W", cell: float = 0.0,
     ex1 = ex0 + ew
     cx0 = ex1 + GAP
     cx1 = W - 8 - OPS_W - GAP - (cw + GAP if cw else 0)
+    # 播放台滑出（导演 19:26：「最后阶段舍弃掉左边播放台，突出最后的重点」）：
+    # 播放台**向左滑出画面**，不是被压窄——所以它最后几帧是"一半在画外"的，
+    # 而世界从左边长出来，两者不同时变形。实体列的矩形也随它一起走，
+    # 所以它滑出去时是整块面板离场，不是内容被裁。
+    out = max(0.0, min(1.0, entity_out))
+    if out > 0.0:
+        ex0 = int(round(ex0 - ew * out))       # 宽度不变，整块面板向左离场
+        ex1 = ex0 + ew
+        cx0 = max(0, int(round(cx0 - ew * out)))
     cell_rect = (W - 8 - OPS_W - GAP - cw, BODY_Y0, W - 8 - OPS_W - GAP, BODY_Y1) if cw else (0, 0, 0, 0)
     return {
         "head": (0, 0, W, HEAD_H),
@@ -614,7 +623,21 @@ def entity(t, rect=None, *, tray=0.0, disc=True, rpm=8.3, state="PLAY", power="O
 def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, plate_a=1.0,
             pot_a=1.0, column_a=1.0, floor=0.70, seed=11, label="WORLD // VALLEY",
             amp_scale=1.0, x_off=0.0, pot_h=235.0, pot_count=1, pot_x=0.845, horizon=0.0,
-            boot=None, poem=None, rise=0.0, stage=None, shock=0.0, solo=None):
+            boot=None, poem=None, rise=0.0, stage=None, shock=0.0, solo=None,
+            world_a=1.0, sky_dim=1.0):
+    """The world pane.
+
+    `world_a` is the **whole world's opacity** — the knob the chorus uses to make the
+    valley step aside. It is separate from `ridge_a` / `pot_a` on purpose: those two are
+    *shape* parameters (how tall the ridge, how tall the orchids), so multiplying them
+    shrinks the picture instead of fading it out, and a shrunken orchid is not a
+    departing one. `world_a` fades the silhouette, the grass and the flowers together,
+    which is what "伴奏退场" looks like.
+
+    `sky_dim` darkens the sky itself. The sky's mid tone is brighter than the ridge
+    silhouette, so fading the ridge alone leaves a purple wash that swallows the chorus
+    lines; the sky has to go to night for "only the voices are left" to read.
+    """
     rect = rect or zones()["content"]
     x0, y0, x1, y1 = rect
     w, h = x1 - x0, y1 - y0
@@ -625,20 +648,45 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
     # emotion rises toward the demands
     warm = 0.40 * rise
 
+    # The sky is painted first and kept: the ridge is drawn **on top of it**, so when the
+    # chorus makes the world step aside, what shows through is the sky rather than the
+    # panel's black. (Fading the ridge against a black ground left a purple-black mass
+    # that still read as "a mountain", and the chorus lines vanished into it.)
+    sky = None
     if sky_a > 0.01:
-        lay = Image.new("RGB", (w, h), PANEL_BG)
-        tk.sky(lay, R, warm, 0.0)
-        img.paste(Image.blend(Image.new("RGB", (w, h), PANEL_BG), lay, sky_a), (0, 0))
+        sky = Image.new("RGB", (w, h), PANEL_BG)
+        tk.sky(sky, R, warm, 0.0)
+        if sky_dim < 1.0:
+            # 合唱段：世界让位之后，剩下的应该是**夜**——暗、深，只有星星。
+            # 天空的中间调 (22,30,66) 比山脊剪影还亮，所以"淡出山"而不"压暗天"的话，
+            # 观众看到的是一片发紫的底，合唱的线反而埋在里面。
+            sky = Image.blend(Image.new("RGB", (w, h), PANEL_BG), sky, sky_dim)
+        img.paste(Image.blend(Image.new("RGB", (w, h), PANEL_BG), sky, sky_a), (0, 0))
 
     v_sig = drive.vocals_smooth(t)
     b_sig = drive.bass_smooth(t)
     o_sig = drive.other_smooth(t)
 
-    if ridge_a > 0.01:
-        lay = Image.new("RGB", (w, h), PANEL_BG)
+    if ridge_a > 0.01 and world_a > 0.01:
+        # The ridge is drawn onto the sky, then the whole ridge layer is faded by
+        # `world_a` — so the fade reveals the sky underneath, not the panel's black.
+        # (Fading the ridge against a black ground left a purple-black mass that still
+        # read as "a mountain", and the chorus lines vanished into it.)
+        #
+        # **Only when the world is actually yielding.** Compositing the ridge against the
+        # sky instead of black changes every frame in the film (measured: max Δ25,
+        # 51k pixels differ) — and the rest of the film was drawn against black, so
+        # leave it that way.
+        base = img.copy() if world_a < 0.999 else Image.new("RGB", (w, h), PANEL_BG)
+        lay = base
         tk.terrain(lay, R, mood=warm, seed=seed, t=t, cold=0.0, x_off=x_off,
-                   amp_scale=amp_scale * ridge_a * (0.74 + 0.55 * b_sig), floor=floor)
-        img = Image.blend(img, lay, min(1.0, ridge_a * 1.15))
+                   amp_scale=amp_scale * ridge_a * (0.74 + 0.55 * b_sig), floor=floor,
+                   # the crest line fades **faster** than the ridge body (square, not
+                   # linear): a 1-px bright line still reads as a distinct stroke at 30%
+                   # opacity, while a broad gradient at 30% is already gone. That is why
+                   # the chorus lines used to disappear into the ridges.
+                   rim_a=world_a ** 2)
+        img = Image.blend(img, lay, min(1.0, ridge_a * 1.15 * world_a))
     if star_a > 0.01:
         tk.stars(img, R, t, seed, min(1.0, 0.95 * star_a * (0.85 + 0.55 * rise)))
     if rain_a > 0.01:
@@ -646,7 +694,7 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
     if column_a > 0.01:
         img = tk.entity(img, w * 0.40, h * 0.40, t, column_a * (0.18 + 0.82 * v_sig))
 
-    tk.grass(img, R, t, ridge_a, seed)
+    tk.grass(img, R, t, ridge_a * world_a, seed)
     # 呐喊: rings leave the centre on every beat (the shout's own punctuation)
     if shock > 0.01:
         tk.shock_ring(img, w * 0.44, h * 0.46, 1.0 - clock.pulse(t), shock,
@@ -680,16 +728,17 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
 
         _boot(img, R, _boot_u(boot, "ticker"), _draw_telemetry, t=t,
               frame=False, scan=False)
-    if pot_a > 0.01:
+    if pot_a > 0.01 and world_a > 0.01:
         # one pot is the poem's pot ("谁记得曾经有那一盆"); a hillside of them is A③
         if pot_count <= 1:
-            tk.orchid(img, w * pot_x, h - 16, pot_h * pot_a, t, alpha=1.0, blooms=2)
+            tk.orchid(img, w * pot_x, h - 16, pot_h * pot_a, t,
+                      alpha=world_a, blooms=2)
         else:
             for k in range(pot_count):
                 fx = pot_x + (k - (pot_count - 1) / 2) * 0.085
                 hh = pot_h * pot_a * (0.72 + 0.28 * ((k * 37) % 7) / 6)
                 tk.orchid(img, w * fx, h - 16 - (k % 3) * 6, hh, t + k * 0.7,
-                          alpha=0.92, blooms=2)
+                          alpha=0.92 * world_a, blooms=2)
 
     d = ImageDraw.Draw(img)
     if horizon > 0.005:
@@ -750,7 +799,8 @@ def content(t, rect=None, *, sky_a=1.0, ridge_a=1.0, star_a=1.0, rain_a=0.0, pla
         d = ImageDraw.Draw(img)
     tk.ticks(img, R)
     d = ImageDraw.Draw(img)
-    tk.hud(d, R, t, label, BLUE_HI, _breathe(t, 0.40, 0.12), stamp="261026 0353")
+    tk.hud(d, R, t, label, BLUE_HI, _breathe(t, 0.40, 0.12), stamp="261026 0353",
+           foot=world_a > 0.45)
     _frame(d, R, BLUE_MID, _breathe(t, 0.22))
     # the climb, last touch: the whole world gains light as the emotion rises
     if rise > 0.01:
@@ -1144,8 +1194,9 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
           log=None, paper_kw=None, old=None, cue=None, big=None, undo=None, times=None,
           boot=None, overload=0.0, glow=0.34, demand=None, cell=0.0, inst=None,
           cell_px: float = 0.0, status=None, dial=None, dim=None, chorus=None,
-          scoreline=None, chip_now=False, voices=None, power=None):
-    z = zones(collapse, mode, cell, cell_px)
+          scoreline=None, chip_now=False, voices=None, power=None, chorus_fx=None,
+          entity_out: float = 0.0):
+    z = zones(collapse, mode, cell, cell_px, entity_out=entity_out)
     img = Image.new("RGB", (W, H), BG)
 
     def _workbench(dst):
@@ -1226,6 +1277,9 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
     # 所以扫描线/辉光/暗角把它当成画面的一部分。
     if voices:
         _b2_voices(img, z.get("content") or z.get("paper"), voices)
+    # A② 的合唱收敛：同一层（world），同样在 post() 之前。
+    if chorus_fx:
+        _chorus_converge(img, z.get("content") or z.get("paper"), chorus_fx)
     img = tk.post(img, glow)
     if cue:
         _cue_line(img, cue, t)
@@ -1233,10 +1287,21 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
 
 
 def _cue_line(img, cue, t):
-    """The stage direction, in red, on its own line (plan/19 §2 row 3)."""
+    """The stage direction, in red, on its own line (plan/19 §2 row 3).
+
+    The cue text is **Chinese** ("啊预备唱"), and `consolab.ttf` has no CJK glyphs —
+    PIL renders each one as a hollow `.notdef` box. So the ASCII marker and the Chinese
+    are drawn with different faces: MONO_B for ">> ", CJK for the words. (An audit of the
+    A² entry frame found three red boxes sitting in the bottom-left corner.)
+    """
     d = ImageDraw.Draw(img)
     blink = 0.55 + 0.45 * math.sin(t * 7.0)
-    tk.text(d, (16, H - TOK_H - 26), ">> " + cue, font(tk.MONO_B, 15), RED, 0.95 * blink)
+    x, y = 16, H - TOK_H - 26
+    f_mono = font(tk.MONO_B, 15)
+    tk.text(d, (x, y), ">> ", f_mono, RED, 0.95 * blink)
+    x += d.textlength(">> ", font=f_mono)
+    f_cjk = font(tk.CJK, 15)
+    tk.text(d, (x, y), cue, f_cjk, RED, 0.95 * blink)
 
 
 BIG_CAP = 60            # 大字字号上限（原 88）。留出字位框的内边距，见 _demand_slot
@@ -1463,6 +1528,171 @@ def _b2_voices(img: Image.Image, rect, st) -> None:
     tk.text(d, (cx + tw2 / 2 + 16, ly + 2), r, fsm, RED, 0.55 * a)
 
 
+
+
+def _ribbon(img: Image.Image, pts, color, *, half: float = 6.0, core: float = 0.42,
+            alpha: float = 1.0) -> None:
+    """A soft band of light along a path.
+
+    The chorus needs to read as **light**, not as a line. This world is full of 1-px
+    strokes — the three ridge rim-lights alone are enough to hide a thin chorus line
+    under them — so a voice is drawn as a band with a bright core and soft shoulders.
+
+    Implementation: the band is rendered into its own **alpha mask**, one column per
+    x, and composited once. (Painting the pixels directly gave a staircase: each
+    column's band was a whole number of pixels tall, so the edges stepped.)
+    The mask's value per pixel is the falloff from the centre line, which makes a
+    continuous band with no hard edges.
+    """
+    if alpha <= 0.01 or len(pts) < 2:
+        return
+    half = max(1.0, float(half))
+    span = int(half * 3)
+    mask = Image.new("L", img.size, 0)
+    md = ImageDraw.Draw(mask)
+    for (x0p, y0p), (x1p, y1p) in zip(pts, pts[1:]):
+        x0i, x1i = int(round(x0p)), int(round(x1p))
+        if x1i == x0i:
+            x1i = x0i + 1
+        for x in range(x0i, x1i + 1):
+            u = (x - x0p) / max(1e-6, (x1p - x0p))
+            yc = y0p + (y1p - y0p) * u
+            # soft shoulders: full brightness inside the core, then a smooth falloff
+            lo = yc - half * core
+            hi = yc + half * core
+            md.rectangle([x, lo, x, hi], fill=255)
+            # the shoulders: three steps of decreasing value, so the edge is soft
+            for k in range(1, 4):
+                off = half * (core + (1.0 - core) * k / 3.0)
+                v = int(255 * (1.0 - k / 3.0) ** 1.6)
+                md.rectangle([x, yc - off, x, lo], fill=v)
+                md.rectangle([x, hi, x, yc + off], fill=v)
+    band = Image.new("RGB", img.size, color)
+    # the core stays solid; only the shoulders fade with `alpha` — otherwise a low alpha
+    # dims the whole band and the voice stops reading as light at all
+    img.paste(band, (0, 0), mask)
+    img.paste(band, (0, 0), mask.point(
+        lambda v: int(v * alpha) if v < 255 else int(255 * min(1.0, alpha * 1.6))))
+
+
+def _chorus_converge(img: Image.Image, rect, st) -> None:
+    """A②/A③/A④ 的合唱：几条声部收敛成一条。
+
+    导演（12:15）：「我不想回到开头那样，我认为不够亮眼，我需要在 4:25 之后有『完全不同的感受』」
+    导演（12:14）：「去原案仓库里找找思路或者画面线索」
+
+    原案的合唱段（`sec_chorus1.py` / `sec_chorus2.py`）给的隐喻是**向量收敛**：
+    `shot_unite` 让 `me` 和 `you` 从两侧飞向中央融成一个 `we`，下面一张 t-SNE 散点图，
+    底下写 `cos(me, you) = 0.9939`；`shot_flood` 更极端——60×28 的格子阵被 `me` 一格格淹没。
+    `shot_deeply` 再补一个注意力图和 `attn(me → you) = 1.000`。
+
+    我们借它的**隐喻**，不用它的数字。`src/probes/chorus_cosine.py` 在导演放进来的 17 轨
+    分轨上量了主唱与背景和声的谱相似度：**A② 是 0.513**（和声只差 3.9 dB，合唱真的唱成一片），
+    B② 只有 0.277，A④ 是 0.375。所以画面上那个数是**我们的**、且随段落变化。
+
+    画法：几条声部线从左侧散开，各自带自己的头（V1..V6），在句尾向中线收敛成一条亮线；
+    汇合处打出 `cos(v1..vN)`，底下一行 `VOICES NN -> 01`。
+    """
+    if not st:
+        return
+    a = float(st.get("alpha", 0.0))
+    if a <= 0.01:
+        return
+    g = float(st.get("gather", 0.0))          # 0 = 散开, 1 = 收成一条
+    nv = int(st.get("voices", 6))            # 几个人在唱（实测，见 src/voices.py）
+    nv = max(1, min(6, nv))
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    d = ImageDraw.Draw(img)
+    mid = y0 + h * 0.46
+
+    # 六条线的散开/收拢位置；只用前 nv 条（nv 是实测的人数）
+    SPREAD = (0.40, 0.28, 0.17, -0.17, -0.28, -0.40)
+    GATHER = (0.055, 0.035, 0.015, -0.015, -0.035, -0.055)
+    # 线从画外进来、收拢点靠左：世界在播放台滑出后从画面最左边开始，线要走半张画面才收拢
+    # 的话，路上那段是淡的，等于看不见——所以路要短，收拢要早。
+    sx = x0 - 40
+    ex = x0 + w * 0.46
+
+    def _bez(p0, p1, p2, p3, n=44):
+        pts = []
+        for i in range(n + 1):
+            u = i / n
+            v = 1 - u
+            pts.append((v**3*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u**3*p3[0],
+                        v**3*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u**3*p3[1]))
+        return pts
+
+    for i in range(nv):
+        # 声部 i 的**起点**高度：从"散开位"向"收拢位"滑，滑多少由 gather 决定。
+        # 光带的长度始终是整条（从画外左缘到收拢点），所以散开时看得到的是几条铺开的带，
+        # 收拢时它们滑到中线叠成一条。
+        # （旧画法：线从画外一点点"长"出来，gather=0 时只画 8%，那 8% 还在画外——于是每句
+        #  开头的那一两秒画面是空的。现在散开就是真的散开。）
+        gi, si = GATHER[i], SPREAD[i]
+        y_start = mid + h * (gi + (1.0 - g) * (si - gi)) / 2
+        y_end = mid + h * gi / 2
+        pts = _bez((sx, y_start), (x0 + (ex - x0) * 0.38, y_start),
+                   (ex - (ex - x0) * 0.26, y_end), (ex, y_end))
+        head = pts[-1]
+        col = AMBER if i % 2 == 0 else BLUE_HI
+        # **光带，不是细线**（导演拍板）。原因很实在：这幅画面里本来就有一堆细线——
+        # `tk.terrain` 给每层山脊画 1px 的 rim light。合唱如果也用细线，观众在视觉上
+        # 分不出哪条是"山"、哪条是"人"，线压在山上就等于消失。
+        # 画法：沿路径生成一个**有宽度的多边形**，里面按到中心线的距离做软边渐变
+        # （中心最亮，两侧渐隐）——是一条连续的光带，不是几条并排的线。
+        va = a * (0.72 + 0.28 * g)
+        _ribbon(img, pts, col, half=3.4, core=0.40, alpha=va)
+
+        d.ellipse([head[0] - 4, head[1] - 4, head[0] + 4, head[1] + 4],
+                  fill=fade(col, min(1.0, va + 0.30)))
+        # V1..Vn 的标签：跟着**这条声部自己的起点**走，不跟着收拢点——
+        # 声部是散的，标签堆在收拢点就叠成一团了。
+        # 而且要落在**画内**：光带从 x0−40（画外）进来，标签得等它进了画面再标，
+        # 否则 V1/V6（最外两条）永远看不见自己是谁。
+        lx = x0 + 12
+        ly = y_start
+        for pxi, pyi in pts:
+            if pxi >= lx:
+                ly = pyi
+                break
+        d.text((lx, ly - 5), "V%d" % (i + 1), font=font(tk.MONO, 8),
+               fill=fade(col, a * (0.75 * (1.0 - g) + 0.25)))
+
+    # the gathered voice: one line, solid, and the number we measured
+    if g > 0.50:
+        ga = (g - 0.50) / 0.50
+        # 收成一条时带宽也要涨：那不再是一个声部，是六个人叠在一起的**一根光柱**
+        _ribbon(img, [(ex, mid), (x0 + w * 0.92, mid)], AMBER,
+                half=1.8 + 3.4 * ga, core=0.44, alpha=0.95 * ga * a)
+        f = font(tk.MONO_B, 11)
+        d.text((ex + 12, mid - 14), "WE", font=f, fill=fade(AMBER, 0.95 * ga * a))
+    if g > 0.68:
+        ga = (g - 0.68) / 0.32
+        lab = "cos(v1..v%d) = %.3f" % (nv, float(st.get("cos", 0.0)))
+        f = font(tk.MONO_B, 12)
+        tw = d.textlength(lab, font=f)
+        bx = ex + 74
+        d.rectangle([bx - 8, mid - 22, bx + tw + 8, mid - 2], fill=fade((2, 3, 8), 0.80 * ga * a))
+        d.text((bx, mid - 19), lab, font=f, fill=fade((255, 246, 224), 0.95 * ga * a))
+
+    # 这一句是谁在唱：条数 = 实测的合唱人数，不是固定的六。
+    # **位置**：世界的 hud 标签（`tk.hud`）把 "24.15N 120.68E" 画在 (x0+8, y1-16)，
+    # 而 `layout4` 自己把 "TUI-1" 画在 (22, h-36) —— 都在世界的左下角。原来这里
+    # 也画在 (x0+6, y1-16)，三段字叠在一起，谁都看不清。改到**右上角**：
+    # 那一侧只有 "TUI-1"，而且合唱的线在左半边，不会撞。
+    fv = font(tk.MONO, 9)
+    lab = "VOICES %02d -> 01" % nv
+    tw = d.textlength(lab, font=fv)
+    lx = x1 - tw - 10
+    d.rectangle([lx - 6, y0 + 20, lx + tw + 6, y0 + 34], fill=fade((2, 3, 8), 0.55 * a))
+    d.text((lx, y0 + 22), lab, font=fv, fill=fade(BLUE_HI, 0.72 * a))
+    # 歌词：跟着 VOICES 那一行，但放在它**上面**一行（V1..Vn 标签在更上面）
+    txt = st.get("text") or ""
+    if txt:
+        ft = font(tk.CJK, 9)
+        d.text((x1 - d.textlength(txt, font=ft) - 10, y0 + 36), txt, font=ft,
+               fill=fade(BLUE_HI, 0.50 * a))
 
 
 def _dial(img, rect, *, stage: int, inner: float, text: str, alpha: float = 1.0,

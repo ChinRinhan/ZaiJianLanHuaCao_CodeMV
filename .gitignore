@@ -13,3 +13,5 @@ data/audio/stems_wav/
 pip-*
 __pycache__/
 .scratch/
+# 逐帧的合唱人数曲线（350 KB，没有代码读它）——摘要进 data/voice_count.json
+data/voice_count_curve.json

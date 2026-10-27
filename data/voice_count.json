@@ -1,0 +1,47 @@
+{
+  "B1": {
+    "t0": 103.84,
+    "t1": 136.6,
+    "voices_mean": 3.66,
+    "voices_p90": 7.0,
+    "voices_max": 12,
+    "rel_db_mean": 3.04,
+    "audible_frac": 0.886
+  },
+  "B2": {
+    "t0": 245.79,
+    "t1": 266.31,
+    "voices_mean": 4.88,
+    "voices_p90": 7.0,
+    "voices_max": 12,
+    "rel_db_mean": -19.31,
+    "audible_frac": 0.732
+  },
+  "A2": {
+    "t0": 266.31,
+    "t1": 312.45,
+    "voices_mean": 3.89,
+    "voices_p90": 6.0,
+    "voices_max": 10,
+    "rel_db_mean": -1.96,
+    "audible_frac": 0.946
+  },
+  "A3": {
+    "t0": 312.45,
+    "t1": 358.92,
+    "voices_mean": 4.74,
+    "voices_p90": 7.0,
+    "voices_max": 11,
+    "rel_db_mean": 3.06,
+    "audible_frac": 0.98
+  },
+  "A4": {
+    "t0": 358.92,
+    "t1": 387.0,
+    "voices_mean": 5.33,
+    "voices_p90": 8.0,
+    "voices_max": 11,
+    "rel_db_mean": 3.5,
+    "audible_frac": 1.0
+  }
+}

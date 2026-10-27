@@ -247,13 +247,18 @@ def _vgrad(size, top, bot, y0, y1):
 
 
 def terrain(img, rect, *, mood=0.0, seed=3, t=0.0, cold=0.0, amp_scale=1.0,
-            x_off=0.0, floor=0.70):
+            x_off=0.0, floor=0.70, rim_a=1.0):
     """Three ridge layers, each a masked vertical gradient so the mass reads as a silhouette.
 
     `x_off` slides the ridge pattern horizontally and `floor` moves the lowest ridge line up or
     down, so a section can be framed differently without redrawing it: same world, different
     camera. (plan/03 §2.1: the complaint was that the right pane looked identical at 80 s and
     386 s. Changing only the seed gives "the same filter", not "a different shot".)
+
+    `rim_a` dims the bright edge-line along each ridge crest. It exists because of the
+    chorus: the crest line is the brightest 1-px stroke in the whole frame, and it reads
+    as "another voice" when the chorus is drawn as lines. When the chorus is on screen the
+    ridges should be quiet masses, not outlines.
     """
     x0, y0, x1, y1 = rect
     d = ImageDraw.Draw(img)
@@ -282,7 +287,9 @@ def terrain(img, rect, *, mood=0.0, seed=3, t=0.0, cold=0.0, amp_scale=1.0,
         mask = _poly_mask(size, poly)
         top_y = min(p[1] for p in pts)
         img.paste(_vgrad(size, top_col, bot_col, top_y, y1), (0, 0), mask)
-        d.line(pts, fill=mix(rim, top_col, 0.16 + 0.16 * lit), width=1)
+        if rim_a > 0.01:
+            d.line(pts, fill=mix(mix(rim, top_col, 0.16 + 0.16 * lit),
+                                 bot_col, 1.0 - rim_a), width=1)
         for (px, py) in pts[::7]:
             if _hash(px, py, seed + sd) > 0.62:
                 d.text((px, py + 3), "·", font=font(MONO, 12), fill=mix(rim, top_col, 0.62))
@@ -387,7 +394,16 @@ def spiral(img: Image.Image, cx: float, cy: float, t: float, amount: float, warm
         d.text((pts[i][0], pts[i][1]), "+", font=f, fill=mix(BG, (255, 240, 220), 0.42))
 
 
-def hud(d: ImageDraw.ImageDraw, rect, t: float, label: str, color, alpha=0.42, stamp=None):
+def hud(d: ImageDraw.ImageDraw, rect, t: float, label: str, color, alpha=0.42, stamp=None,
+        foot: bool = True):
+    """The world's HUD frame: label, timestamp, coordinates.
+
+    `foot=False` drops the bottom-left coordinate row. It exists for the chorus: the
+    world's bottom-left corner is where the stage cue (">> 啊预备唱") is drawn, and the
+    two overlapped — the cue's red CJK text sat on top of "24.15N 120.68E" and neither
+    was legible. During the chorus the world itself has stepped aside, so a coordinate
+    readout for it is not wanted anyway.
+    """
     x0, y0, x1, y1 = rect
     f = font(MONO, 11)
     text(d, (x0 + 8, y0 + 6), label, f, color, alpha)
@@ -395,7 +411,8 @@ def hud(d: ImageDraw.ImageDraw, rect, t: float, label: str, color, alpha=0.42, s
         text(d, (x1 - 96, y0 + 6), stamp, f, color, alpha * 0.75)
     else:
         text(d, (x1 - 130, y0 + 6), f"{t:07.3f}s  {int(t * 24):05d}f", f, color, alpha * 0.8)
-    text(d, (x0 + 8, y1 - 16), "24.15N 120.68E", f, color, alpha * 0.55)
+    if foot:
+        text(d, (x0 + 8, y1 - 16), "24.15N 120.68E", f, color, alpha * 0.55)
     text(d, (x1 - 58, y1 - 16), "TUI-1", f, color, alpha * 0.55)
     for cx, cy, dx, dy in [(x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)]:
         d.line([(cx, cy), (cx + dx * 13, cy)], fill=fade(color, alpha * 0.45))

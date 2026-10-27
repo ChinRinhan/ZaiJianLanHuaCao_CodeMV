@@ -26,6 +26,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _PATH = ROOT / "data" / "backing_vocal.json"
+_PATH_FULL = ROOT / "data" / "backing_vocal_full.json"
+_PATH_TAIL = ROOT / "data" / "backing_vocal_tail.json"
 
 # 和声相对电平 → 画几层。分界是**量出来的**：B① 四句是 −8.6 ~ −9.8 dB（一个人），
 # B② 是 −7.4 / −6.6 / −6.3 / −5.0 dB（合唱在涌上来）。所以 −8.5 以下 = 一个人，
@@ -44,6 +46,106 @@ def _load():
 
 
 _DATA = _load()
+
+
+def _load_full():
+    try:
+        return json.loads(_PATH_FULL.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _load_tail():
+    try:
+        return json.loads(_PATH_TAIL.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+_FULL = _load_full()
+
+# A③ / A④ (the last two thirds of the song) are measured separately, because they are
+# the loudest chorus in the whole recording — see `src/probes/backing_vocal_tail.py`.
+# They are concatenated onto the same list so every lookup sees one continuous timeline.
+_TAIL = _load_tail()
+if _TAIL:
+    _FULL = (_FULL or []) + _TAIL
+
+
+def line_at(t: float):
+    """The sung line covering t, as (group, n, text, rel_db, voices) — or None.
+
+    From `data/backing_vocal_full.json` (probe: src/probes/backing_vocal_full.py) plus
+    `data/backing_vocal_tail.json` (probe: src/probes/backing_vocal_tail.py), which walk
+    every sung line from 1:43 to the end on the director's 17-track separation.
+
+    This is where "合唱逐渐增加" comes from as a fact rather than a wish: B① is 1 voice for
+    all eight lines; B② climbs 2→2→2→3 and then drops back to 1 for its last two lines
+    (the backing is -43 dB there — nobody is singing); A② moves 3,3,5,4,2,4,3,4,5,3; A③
+    moves 4,4,5,3,5,5,5,5,4,4; and A④ — the end — is 6,5,5,4,4,4,6.
+
+    So the chorus is not a fixed number of people, it is six people taking turns, and
+    the *last* section is the fullest one: in A④ the backing voice sits 0.1 dB below the
+    lead — the two are indistinguishable. That is what the picture has to show.
+    """
+    if not _FULL:
+        return None
+    for row in _FULL:
+        if row["t0"] <= t < row["t1"]:
+            return (row["group"], row["n"], row["text"],
+                    float(row["rel_db"]), int(row["voices"]))
+    return None
+
+
+def voices_at(t: float) -> int:
+    """How many voices are singing at t (1 = the lead alone)."""
+    r = line_at(t)
+    return r[4] if r else 1
+
+
+def next_line_after(t: float):
+    """The sung line that starts after t, or None.
+
+    Used to carry the picture across the gaps *between* lines: during a gap nobody is
+    singing, but the previous line's gathered chord should not blink out of existence.
+    """
+    if not _FULL:
+        return None
+    for row in _FULL:
+        if row["t0"] > t:
+            return row
+    return None
+
+
+def prev_line_before(t: float):
+    """The sung line that was still sounding before t, or None.
+
+    Note: the list has one big hole in it — B① ends at 2:02 and B② starts at 4:05 — so
+    this must NOT stop at the first row that does not match; it has to keep scanning.
+    (An earlier version broke out of the loop there, and then reported B②'s last line as
+    the previous line for everything in A②.)
+    """
+    if not _FULL:
+        return None
+    last = None
+    for row in _FULL:
+        if row["t1"] <= t:
+            last = row
+    return last
+
+
+def preceding_line(group: str, n: int):
+    """The line immediately before (group, n) in the sung order, or None."""
+    if not _FULL:
+        return None
+    idx = -1
+    for i, r in enumerate(_FULL):
+        if r["group"] == group and r["n"] == n:
+            idx = i
+            break
+    if idx <= 0:
+        return None
+    return _FULL[idx - 1]
 
 
 def layers(group: str, n: int) -> int:

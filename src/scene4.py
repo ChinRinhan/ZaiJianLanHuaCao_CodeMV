@@ -715,6 +715,19 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         w_beam = 1.0 - 1.00 * u4
         w_hud = 1.0 - 0.62 * u4
 
+    # ---- A②/A③/A④：合唱接管，世界让位 ------------------------------------------------
+    # 这是**实测**出来的曲线（`src/probes/accompaniment_level.py`）：把 14 条器乐轨相加，
+    # 和背景和声比 —— A② 伴奏还高 6.2 dB（伴奏占优），A③ 持平，A④ 背景和声反超 2.1 dB，
+    # **A④ 是全片唯一人压过伴奏的一段**。所以世界让位的进度跟着这个平衡走：
+    # A② 只让一半（伴奏还在），A③ 让到八成，A④ 才彻底让出来。
+    #
+    # 关键：这一段**接在** A④ 自己的排空之后（上面那段），而不是另起一套——否则两套
+    # 乘法叠在一起，世界会在 A③ 中途突然"退一半"，A④ 又被减一次。
+    _y = _world_yield(t)
+    if _y > 0.0:
+        # 让位由 `world_a`（透明度）单独承担；`w_ter` 保持形状不变——山还是那座山，
+        # 只是它淡了、退了。如果两个都乘，山会先矮下去再淡下去，观众看到的是"山在缩"。
+        w_hud *= (1.0 - _y)
     # the pot: A①' shrink-to-fit table inside A①, the section's flower outside it
     if in_a1:
         pot = _orchid_h(t) / 235.0
@@ -722,6 +735,9 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         pot = max(0.0, 0.42 - (t - 380.99) / (386.5 - 380.99) * 0.42)
     else:
         pot = flower
+    # 兰丛**高度**不动：`pot_a` 是高度不是透明度，把让位乘在它上面会把兰花压矮，
+    # 那是"长大"不是"退场"。真正要退的是整块世界的亮度 —— 见 `world_a`。
+    # （`world_a` 在 `content()` 里乘进山脊、草和兰花的 alpha。）
 
     # the interlude's six movements each get their own framing (plan/19 §3.1).
     # 导演（09:1x）：「3:08 到 3:09 进入 solo 的衔接不够，中途有跳帧」。
@@ -833,6 +849,12 @@ def _world_kw(t, *, mode="W", collapse=0.0):
         pot_count=1 if in_a1 else cnt,
         pot_x=0.845 if in_a1 else px_,
         column_a=col,
+        # 合唱接管时整块世界一起退场（山脊、草、兰花）。这是**透明度**，不是高度——
+        # 高度是 pot_a / ridge_a 的事，混在一起会把兰花压矮，看着像"长大"不是"退场"。
+        world_a=1.0 - _y,
+        # 天空跟着退成夜：天空的中间调比山脊剪影还亮，只淡山不压天的话，观众看到的是
+        # 一片发紫的底，合唱的线埋在里面。让位到一半时天也暗一半。
+        sky_dim=1.0 - 0.88 * _y,
         floor=floor,
         amp_scale=amp_scale,
         x_off=x_off,
@@ -1006,6 +1028,175 @@ A2_T0 = 266.31
 A2_POWER = (("entity", 0.00), ("header", 0.30), ("ops", 0.55),
             ("content", 0.75))
 A2_POWER_TAIL = 0.55          # 每一盏灯自己的亮起时长
+
+# ---- A② 的合唱：六条声部收敛成一条 ---------------------------------------------------
+# 原案的合唱段给的隐喻是"向量收敛"（`shot_unite`：`me` 与 `you` 融成 `we`，配 t-SNE 散点图，
+# 底下写 `cos(me, you) = 0.9939`；`shot_flood`：60×28 格子阵被 `me` 一格格淹没）。
+# 我们借隐喻不用数字：`src/probes/chorus_cosine.py` 在导演的 17 轨分轨上量了主唱与背景和声的
+# 谱相似度，A② = **0.513**（和声只差 3.9 dB，合唱真的唱成一片），B② 只有 0.277。
+#
+# 收敛发生在 A② 的第一句「谁从山中来带着兰花草」（实测起音 4:26.31），整句到 4:33.24。
+# A③（5:12.45）同一句升 key 再来一次时，六条线散开——全片最大的一次视觉反差。
+CHORUS_T0 = 266.31
+CHORUS_END = 387.00          # 歌结束（= A④ 结束）
+CHORUS_LINE_T = 273.24        # 第一句唱完 = 第一句收到一条
+A2_OUT = 1.2                  # 播放台滑出的时长
+
+# 世界让出来的**程度**：0 = 山谷/兰丛/频谱板全在，1 = 只剩天空和合唱的线。
+#
+# 这一条不是审美，是量出来的（`src/probes/accompaniment_level.py`，导演的 17 轨分轨）：
+# 把 14 条器乐轨相加，和背景和声比——
+#
+#   段    伴奏总和   背景和声   合唱 − 伴奏
+#   A①    −20.1      −83.8      +63.7    伴奏独大（几乎没有和声）
+#   B①    −16.0      −27.6      +11.6    伴奏压过
+#   B②    −20.9      −24.5      + 3.6    伴奏略压过
+#   A②    −21.0      −27.2      + 6.2    伴奏仍压过（合唱还在追）
+#   A③    −21.0      −22.6      + 1.5    持平
+#   A④    −24.6      −22.5      − 2.1    **合唱压过伴奏**（全片唯一）
+#
+# 所以"人接管机器"不是从 A② 开始，是**到 A④ 才真正成立**：A④ 的背景和声只比主唱低
+# 0.1 dB，两者已经分不出来，而伴奏比和声还低 2.1 dB。
+#
+# 但**机器的仪表退场**是另一回事，那是导演（19:26）的品味：「最后阶段舍弃掉左边播放台，
+# 突出最后的重点」——播放台、频谱板、电平柱是"伴奏的身体"，4:26 就该走。
+# 两者分开：仪表立刻退，世界按上面的实测曲线慢慢退。
+#
+# 曲线的**形状**跟着实测走（三段递进，不是一步到位）；**终点**是量过屏幕的：山脊区域
+# 的对比度（std）在 world_a=0.25 时降到合唱线本身以下，那时"人"才是画面里最清楚的东西。
+# （world_a=1.0 → std 27.2，0.25 → 11.9，0.05 → 8.7。）
+def _world_yield(t: float) -> float:
+    """How much of the world has yielded to the chorus (0 = intact, 1 = only sky).
+
+    The curve's **shape** follows the measurement (伴奏 vs 合唱 across A②/A③/A④), but
+    its **endpoints** were set by measuring the screen, not by taste: the chorus lines
+    have to be the clearest thing in the frame, and the ridge band's local contrast
+    (std) only drops below the lines' own contrast at world_a ≈ 0.25 — which is why
+    A③ ends there rather than A④.
+
+    So the sequence is: A② lets the world back off enough to stop competing (world_a
+    1.0 → 0.62), A③ takes it the rest of the way (→ 0.25), and A④ leaves only the sky
+    and the voices (→ 0.03).
+
+    **A② 退得比"伴奏还占优"更快**，这是有意的：实测说 A② 的伴奏还压过合唱 6.2 dB，
+    但那是混音的事实，不是画面的义务——导演要的是「4:25 之后完全不同的感受」，所以
+    第一句唱完（4:33.24）世界就该退到位，否则这条线压在满屏的山上看不见。
+    实测在这里的作用是**决定三段的顺序和终点**，不是逐帧照抄混音平衡。
+    """
+    if t < CHORUS_T0:
+        return 0.0
+    # A②：头一句（4:26.31–4:33.24）里快速让位，之后缓慢推进
+    if t < 312.45:
+        first = 273.24                       # 第一句唱完
+        if t <= first:
+            u = (t - CHORUS_T0) / (first - CHORUS_T0)
+            return _smooth(u) * 0.30        # 到第一句结束时退掉 30%
+        u = (t - first) / (312.45 - first)
+        return 0.30 + _smooth(u) * 0.08
+    # A③→A④：合唱追平伴奏，世界退得快
+    if t < 358.92:
+        u = (t - 312.45) / (358.92 - 312.45)
+        return 0.38 + _smooth(u) * 0.37
+    # A④：人压过伴奏，世界彻底让出来
+    u = (t - 358.92) / (387.00 - 358.92)
+    return 0.75 + _smooth(u) * 0.22
+
+
+def _a2_entity_out(t):
+    """播放台滑出的进度（0 = 还在，1 = 完全离场）。
+
+    导演（19:26）：「最后阶段舍弃掉左边播放台，突出最后的重点」。
+    播放台是这台机器的"身体"——A② 之后画面只剩**声音**，所以身体先走。
+    它是**向左滑出**的（整块面板离场），不是被压窄：压窄会让内容变形，
+    而合唱段的内容（六条声部线）需要一条干净的画布。
+
+    导演拍板（20:0x）：A③ / A④ 也不回来——"最后阶段"就是从 4:26 到歌尾。
+    """
+    if t < CHORUS_T0:
+        return 0.0
+    if t >= CHORUS_T0 + A2_OUT:
+        return 1.0
+    return _smooth((t - CHORUS_T0) / A2_OUT)
+
+
+def _chorus_line_span(t):
+    """The (start, end) of the sung line covering t."""
+    if not voices._FULL:
+        return (t, t + 1.0)
+    for row in voices._FULL:
+        if row["t0"] <= t < row["t1"]:
+            return (row["t0"], row["t1"])
+    return (t, t + 1.0)
+
+
+def _chorus_state(t):
+    """The chorus state (None = outside the chorus).
+
+    每一句有自己的收敛：句内从散开收到一条（原案的 `shot_unite` 隐喻），句末保持，
+    下一句重新散开。条数 = 那一句的**实测**合唱人数（`voices.line_at`），所以这条片子的
+    合唱不是固定六个人，是六个人在轮唱——A② 实测 3,3,5,4,2,4,3,4,5,3；A③ 是
+    4,4,5,3,5,5,5,5,4,4；A④ 是 6,5,5,4,4,4,6（背景和声只比主唱低 0.1 dB）。
+
+    **句间的空隙不空场**（导演拍板）：唱完一句到下一句开口之间，歌还在响、人还在，
+    只是换气。所以上一句收到的那条亮线**保持不散**，下一句开口时再重新散开。
+    之前这里在空隙里返回 None，于是 A② 有约 12 秒（整段的 26%）是一个空画面。
+    """
+    if not (CHORUS_T0 <= t < CHORUS_END):
+        return None
+    line = voices.line_at(t)
+    if line is not None:
+        n, rel, text = line[4], line[3], line[2]
+        t0, t1 = _chorus_line_span(t)
+        u = 0.0 if t1 <= t0 else max(0.0, min(1.0, (t - t0) / (t1 - t0)))
+        # 收敛进度：**从上一句留下的状态接着走**，不是从 0 重来。
+        # 上一句收成一条（gather=1），下一句开口要重新散开——但那是"散开"，不是"闪没"。
+        # 旧画法每句开头 gather=0、alpha=0，于是汇聚的亮线、WE 和 cos() 徽章在每一句
+        # 开头都灭一下再亮起（审计实测：句首那一瞬整条亮线消失）。
+        prev = voices.preceding_line(line[0], line[1])
+        g_in = 1.0 if (prev is not None and prev["group"] == line[0]) else 0.0
+        # 形状：接着上一句的 1 → 前 10% 散开回 0 → 0.12~0.82 再收成 1。
+        g_scatter = g_in * (1.0 - _smooth(max(0.0, min(1.0, u / 0.10))))
+        g_gather = _smooth(max(0.0, min(1.0, (u - 0.12) / 0.70)))
+        g = max(g_scatter, g_gather)
+        # alpha 跟着**人声**走，不是跟着收敛走：开口即亮，收敛只是线滑到中线。
+        # 旧画法把 alpha 也绑在 u 上，于是每句开头那一瞬画面是空的（实测 4:50 整帧空）。
+        a = _smooth(max(0.0, min(1.0, u / 0.04)))
+        # 但 alpha 也不能在句首归零：上一句的光还在，人只是换了一句词。
+        if g_in > 0.5:
+            a = max(a, 0.85)
+        return {"gather": g, "alpha": a, "cos": _chorus_cos(t), "voices": n,
+                "text": text, "rel_db": rel, "line_t0": t0, "line_t1": t1}
+
+    # --- between lines: hold the previous line's gathered chord --------------------
+    prev = voices.prev_line_before(t)
+    if prev is None:
+        return None
+    # how long the breath lasts: the gap to the next line, capped at 4 s (a held chord
+    # across a long instrumental break would be a lie — nobody is singing).
+    nxt = voices.next_line_after(t)
+    gap = (nxt["t0"] - t) if nxt else 4.0
+    if gap > 4.0:
+        return None
+    # fade the held chord out over the gap, so it breathes out instead of blinking
+    hold = _smooth(max(0.0, min(1.0, gap / 4.0)))
+    return {"gather": 1.0, "alpha": 0.85 * hold, "cos": _chorus_cos(t),
+            "voices": int(prev["voices"]), "text": prev["text"],
+            "rel_db": float(prev["rel_db"]),
+            "line_t0": prev["t0"], "line_t1": prev["t1"]}
+
+
+# 各段的谱相似度（主唱 vs 背景和声），量出来的：`src/probes/chorus_cosine.py`。
+# A② 0.513、A③ 0.404、A④ 0.375——数字在变，因为录音在变，不是抄一个常数。
+_COS = {"A2": 0.5126, "A3": 0.4036, "A4": 0.3748}
+
+
+def _chorus_cos(t: float) -> float:
+    """The measured spectral similarity for the section containing t."""
+    line = voices.line_at(t)
+    if line is None:
+        line = voices.prev_line_before(t)
+    grp = line[0] if line else "A2"
+    return _COS.get(grp, 0.5126)
 
 
 def _power_on(img, t):
@@ -1331,6 +1522,29 @@ def _body(t: float) -> Image.Image:
             chars[_idx] = _oldch
 
     kw = _world_kw(t, mode=mode, collapse=collapse)
+
+    # ---- A②/A③/A④ 的合唱：仪表退场（世界的让位在 `_world_kw` 里做） -------------------
+    # 两件不同的事，分开处理：
+    #
+    # ① **仪表退场**（导演 19:26 的品味）：播放台、频谱板、电平柱是"伴奏的身体"，
+    #    4:26 起 0.8 s 内退干净——这部分是导演的决定。
+    # ② **世界让位**（实测，`_world_yield`）：山脊/兰丛按"合唱 − 伴奏"的平衡曲线慢慢退，
+    #    在 `_world_kw` 里乘进 `w_ter` / `pot`。
+    #
+    # 之前这里是"0.8 s 内全退"，依据是一句写错的注释（"A② 伴奏最弱"）。查证：那两个
+    # 数字（鼓 −35.2 / 电吉他 −37.2 dB）是**绝对** dBFS，B① 的鼓组是 −28.6，其实更响；
+    # 而按相对关系，A② 的伴奏比背景和声还高 6.2 dB，是伴奏占优——真正人压过伴奏的是 A④。
+    ch = _chorus_state(t)
+    if ch is not None:
+        _out = _smooth(max(0.0, min(1.0, (t - CHORUS_T0) / 0.8)))
+        kw.update(
+            # 频谱板整块退场（不是变暗）：它是伴奏的图形，合唱段只剩声音。
+            # `content()` 里 `plate_a > 0.01` 才画，所以直接归零。
+            plate_a=0.0 if _out > 0.98 else kw.get("plate_a", 1.0) * (1.0 - _out),
+            column_a=kw.get("column_a", 1.0) * (1.0 - 0.95 * _out),
+            rain_a=kw.get("rain_a", 0.0) * (1.0 - 0.85 * _out),
+            star_a=kw.get("star_a", 1.0) * (1.0 + 0.35 * _out))
+
     # B②：机器往后退，世界让出来；抽空时世界冻结，只剩歌词与表盘
     b2 = _b2_state(t)
     dim = None
@@ -1404,7 +1618,8 @@ def _body(t: float) -> Image.Image:
         chip_now=_countdown(t) is not None,
         glow=0.30 + 0.16 * _rise(t),
         dim=dim, chorus=b2, scoreline=sc, voices=b2_voices,
-        power=_a2_power(t),
+        power=_a2_power(t), chorus_fx=_chorus_state(t),
+        entity_out=_a2_entity_out(t),
         log=_console_for(t) if boot is not None else None)
     # B②：回执 + 入口断电/上电。两层都画在合成之后——它们属于"机器的界面"，
     # 不该被世界/列自己的 alpha 稀释（回执自己按 drain 淡出，断电是硬切）。
