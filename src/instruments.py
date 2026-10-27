@@ -701,6 +701,60 @@ def trail_at(notes, t: float, *, span: float = 2.6, limit: int = 9) -> list:
     return out[-limit:]
 
 
+# ---------------------------------------------------------------- the copying act
+ECHO_DELAY = 0.534      # 卡农的延迟：一拍之后（score3.canon 的同一个常数）
+ECHO_SEMIS = 7          # 高五度
+
+
+def _echo_threads(img, box, t, notes, *, lo: int, hi: int, lead: float = 3.0,
+                  alpha: float = 1.0, back: float = 1.0, ahead: float = 0.9,
+                  limit: int = 7):
+    """对话段的语言：把"一句抄一句"画成一根线。
+
+    之前这里是"幽灵方块 + 一条折线"，同一个第二声部被画了两遍，可是**谁抄谁**从来没上过画面，
+    所以 162–190 读起来只是"钢琴段 + 一根白线"。一根线才是关系本身：它在回声到达之前就存在，
+    回声被拉的那 0.534 s 里最亮，抄完就在目标处落成实心，随即消失。
+
+    端点用的是 roll 的同一套坐标（横向 = 音高 keymap，纵向 = 时间 y1-(tn-t)*v），
+    所以线头正好落在钢琴方块的"头"上，线尾正好落在回声将要落下的位置。
+    """
+    if alpha <= 0.01 or not notes:
+        return
+    x0, y0, x1, y1 = box
+    v = (y1 - y0) / lead
+    kw, pos = keymap(lo, hi, x0, x1 - x0)
+    d = ImageDraw.Draw(img)
+    INK = (255, 246, 224)          # 磷光白：和弓同一支笔，区别于钢琴的琥珀
+    pairs = [n for n in notes if t - back <= n[0] <= t + ahead][:limit]
+    for (tn, m, s, _dur) in pairs:
+        mm = m + ECHO_SEMIS
+        if mm > hi - 1:
+            mm -= 12
+        if m not in pos or mm not in pos:
+            continue
+        ys = y1 - (tn - t) * v                 # 被敲下的地方
+        yt = y1 - (tn + ECHO_DELAY - t) * v    # 回声要落下的地方（更高、更晚）
+        if not (y0 + 2 <= ys <= y1) or not (y0 + 2 <= yt <= y1):
+            continue
+        xs, xt = pos[m][0], pos[mm][0]
+        u = max(0.0, min(1.0, (t - tn) / ECHO_DELAY))   # 0 = 刚敲下，1 = 抄本落地
+        a = (0.22 + 0.52 * u) * alpha
+        d.line([(xs, ys), (xt, yt)], fill=fade(INK, a), width=2)
+        d.ellipse([xs - 1.5, ys - 1.5, xs + 1.5, ys + 1.5], fill=fade(INK, a * 1.5))
+        # 火花：沿着线从"被抄的"跑到"抄本"。静止的线只能说明"有关系"，
+        # 跑动的点才说明"正在抄"——24 fps 下这一趟只有 12.8 帧，所以它必须亮。
+        hx = xs + (xt - xs) * u
+        hy = ys + (yt - ys) * u
+        d.ellipse([hx - 4, hy - 4, hx + 4, hy + 4], outline=fade(INK, 0.34 * alpha))
+        d.ellipse([hx - 1.8, hy - 1.8, hx + 1.8, hy + 1.8], fill=fade(INK, 0.95 * alpha))
+        hw = max(2.0, pos[mm][1] * 0.23)
+        if u < 1.0:      # 抄本还没被拉到：空心等着
+            d.rectangle([xt - hw, yt - 2, xt + hw, yt],
+                        outline=fade(INK, (0.26 + 0.44 * u) * alpha))
+        else:            # 弓到了：落成实心
+            d.rectangle([xt - hw, yt - 2, xt + hw, yt], fill=fade(INK, 0.72 * alpha))
+
+
 # ---------------------------------------------------------------- the violin's bow
 def _string_line(img, box, t, notes, *, lo: int, hi: int, lead: float = 3.0,
                  alpha: float = 1.0):
@@ -768,7 +822,10 @@ def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
     roll_box = (KX0, y0 + 66, KX1, y0 + 286)
 
     d = ImageDraw.Draw(img)
-    lo, hi = 36, 72
+    # 4 octaves (C2–B6), not 3: the duet's own material runs midi 41–81, so at lo,hi=36,72 the
+    # roll was dropping 10 of the 17 notes it should show on every single frame (47/123 in the
+    # movement). The keyboard follows, or a note would land on the wrong key.
+    lo, hi = 36, 84
 
     if kind in ("piano", "duet"):
         # 导演 (05:39): 2:15→2:25 到钢琴没有衔接；钢琴结束也没有收。
@@ -782,17 +839,27 @@ def stage(img: Image.Image, rect, t: float, *, kind: str, notes, live: dict,
         dy = (1.0 - a_in) * 130.0 + (1.0 - a_out) * 190.0     # + = 向下
         near = [n for n in notes if t - 0.6 <= n[0] <= t + 3.4]
         alt_near = [n for n in (alt or []) if t - 0.6 <= n[0] <= t + 3.4]
-        roll(img, roll_box, t, lo=lo, hi=hi, notes=near, alt=alt_near,
-             title="NOTE ROLL // %d onsets" % len(notes), alpha=a_kb)
+        # 对话段（162–190）：小提琴进来。它只在这一段有形状——之前之后都没有第二个人。
+        # 进场 1.4 s、退场 1.6 s，和钢琴的升降同一个节奏感。
+        ent = (_ease((t - 161.2) / 1.4) * (1.0 - _ease((t - 188.0) / 1.8))
+               if kind == "duet" else 0.0)
+        if ent > 0.01:
+            # 先铺抄写线，钢琴的方块再压在线的起点上：关系在下，音符在上
+            _echo_threads(img, roll_box, t, notes, lo=lo, hi=hi, alpha=a_kb * ent)
+            roll(img, roll_box, t, lo=lo, hi=hi, notes=near, alt=None,
+                 title="NOTE ROLL // %d onsets" % len(notes), alpha=a_kb)
+        else:
+            roll(img, roll_box, t, lo=lo, hi=hi, notes=near, alt=alt_near,
+                 title="NOTE ROLL // %d onsets" % len(notes), alpha=a_kb)
         keyboard(img, (kb_box[0], kb_box[1] + dy, kb_box[2], kb_box[3] + dy), t, lo=lo, hi=hi,
                  presses=presses_at(notes, t),
                  alt_presses=presses_at(alt_near, t) if alt_near else None,
                  trail=trail_at(notes, t), alpha=a_kb)
-        # 对话段（162–190）：小提琴进来。它只在这一段有形状——之前之后都没有第二个人。
-        # 进场 1.4 s、退场 1.6 s，和钢琴的升降同一个节奏感。
         if kind == "duet":
-            ent = _ease((t - 161.2) / 1.4) * (1.0 - _ease((t - 188.0) / 1.8))
-            _string_line(img, roll_box, t, alt or [], lo=lo, hi=hi, lead=3.0,
+            # 白线收窄：只画"正在被抄的那一句"（近 1.4 s 已拉 + 0.5 s 将拉），
+            # 不再贯穿整块谱——语义让给抄写线，弓只负责"此刻在拉哪儿"。
+            tail = [n for n in (alt or []) if t - 1.4 <= n[0] <= t + 0.5]
+            _string_line(img, roll_box, t, tail, lo=lo, hi=hi, lead=3.0,
                          alpha=a_kb * max(0.0, ent))
         # the movement read-out, in the top strip: where we are, in machine words. The
         # note counter is the machine keeping score of what the band has played so far —
