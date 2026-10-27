@@ -35,3 +35,13 @@ tools/ffprobe.exe -v error -show_entries format=duration -of default=nw=1:nk=1 i
 
 **量出来的结论已经进仓库了**（`data/backing_vocal*.json`），所以出片不需要这份分轨；
 只有想重新量的时候才需要。目录名和位置要严格一致（见 `.gitignore` 最后一条）。
+
+重新量需要一套音频分析环境（仓库里不带，本地也删了）：
+
+```bash
+python -m venv .venv-audio
+.venv-audio/Scripts/python.exe -m pip install librosa onnxruntime soundfile soxr demucs-onnx
+```
+
+模型（htdemucs，4 轨约 150 MB）放到 `data/models/`，由 demucs 首次运行时自动下载。
+完整步骤见 `plan/07-插件审查-dsh-soundcheck.md` §Step 1。
