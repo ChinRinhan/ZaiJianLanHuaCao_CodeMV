@@ -1112,7 +1112,7 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
           log=None, paper_kw=None, old=None, cue=None, big=None, undo=None, times=None,
           boot=None, overload=0.0, glow=0.34, demand=None, cell=0.0, inst=None,
           cell_px: float = 0.0, status=None, dial=None, dim=None, chorus=None,
-          scoreline=None, chip_now=False):
+          scoreline=None, chip_now=False, voices=None):
     z = zones(collapse, mode, cell, cell_px)
     img = Image.new("RGB", (W, H), BG)
 
@@ -1179,6 +1179,10 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
         if rr[2] >= rr[0] and rr[3] >= rr[1]:
             _dial(img, rr, stage=dial["stage"], inner=dial["inner"],
                   text=dial["text"], alpha=1.0)
+    # B② 的复声叠影：画在世界（content）里，和 B① 的大字同一层，但在 post() 之前，
+    # 所以扫描线/辉光/暗角把它当成画面的一部分。
+    if voices:
+        _b2_voices(img, z.get("content") or z.get("paper"), voices)
     img = tk.post(img, glow)
     if cue:
         _cue_line(img, cue, t)
@@ -1333,6 +1337,87 @@ def _demand_slot(img, st, box=None):
             xx += 8
         d.line([(xx - 4, yt + 2), (x1, yt + 2)],
                fill=fade(AMBER, (0.16 + 0.42 * off) * a))
+
+
+
+
+def _b2_voices(img: Image.Image, rect, st) -> None:
+    """B② 的复声：同一句话，几个声部分着唱。
+
+    导演（10:5x）：「第一次『宣言』的时候明显只有宝哥一个声音，到 4:05 的第二次的时候，就有
+    宝哥多音轨的和声或『合唱』，刚好预告最后的『齐唱』段」。
+
+    **这是量出来的，不是画的**：导演放进仓库的原曲 17 轨分轨里有 `主唱人声` 与 `背景和声`
+    两轨。探针 `src/probes/backing_vocal.py` 量到第 4 句的和声相对电平是
+    **B① −9.7 dB → B② −5.0 dB**（B② 四句逐句逼近：−7.4 / −6.6 / −6.3 / −5.0），
+    而 B① 全程 −8.6 ~ −9.8 dB 不动。层数与和声的亮度都来自这份数据（`src/voices.py`）。
+
+    为什么早先的三次探针量不出来：Demucs 把原唱所有人声压进 vocals 一轨，1:43 与 4:05 的
+    同时音高数是 2.57 / 2.79（噪声内），而真正六人齐唱的 A② 只有 1.49。
+
+    画法（第一版三层同尺寸叠印在一处，字糊成一团——重影不是合唱；改成 32/24/18 + 22 px
+    行距也还是压在一起；最后统一 22 px + 34 px 行距 + 只做横向错开才读得出三层）：
+      **三条谱行，一行一个声部**，同一句话写三遍，每行左端一个声部标（V1 / V2 / V3），
+      行下一条随唱进度的亮条。这是合唱谱的读法：**同一句话，三个声部**。
+    """
+    if not st:
+        return
+    a = float(st.get("alpha", 0.0))
+    if a <= 0.01:
+        return
+    word = st.get("word") or ""
+    layers = int(st.get("layers", 1))
+    shadow = float(st.get("shadow", 0.2))     # 实测的和声相对电平换算来的亮度
+    if not word:
+        return
+    x0, y0, x1, y1 = rect
+    d = ImageDraw.Draw(img)
+    cx = (x0 + x1) / 2
+    prog = min(1.0, max(0.0, float(st.get("age", 0.0)) / 0.9))
+
+    # 几条谱行 = 几个人在唱。层数是**量出来的**（`voices.layers`），所以这里只能画这么多行，
+    # 不能"画三行再把多余的调暗"——那等于编一个合唱出来。
+    FS = 22
+    LEAD = 34
+    f = font(tk.CJK, FS)
+    tw = d.textlength(word, font=f)
+    top = y0 + (y1 - y0) * 0.18
+    for v in range(layers):
+        off = (0, 44, 88)[v]                     # 逐行右移：错开才看得出是几个人在唱
+        bx = cx - tw / 2 + off
+        yy = top + v * LEAD
+        # 主唱最亮；和声那几层按实测的相对电平给亮度（shadow 越大 = 和声越近 = 越亮）
+        va = a * (0.95 if v == 0 else shadow * (1.0 - 0.18 * (v - 1)))
+        # 每行左端：声部标 + 一小段谱线（标要亮，否则在山脊上看不见）
+        lx = cx - tw / 2 - 46
+        d.text((lx, yy + 2), "V%d" % (v + 1), font=font(tk.MONO_B, 9),
+               fill=fade(AMBER, 0.85 * va))
+        d.line([(lx + 22, yy + FS * 0.95), (lx + 32, yy + FS * 0.95)],
+               fill=fade(AMBER, 0.55 * va), width=2)
+        # the voice's own progress: a bright bar under the row
+        bw = tw * prog
+        d.rectangle([bx, yy + FS * 1.02, bx + bw, yy + FS * 1.02 + 3],
+                    fill=fade(AMBER, 0.75 * va))
+        d.text((bx, yy), word, font=f, fill=fade((2, 3, 8), 0.85 * va),
+               stroke_width=3, stroke_fill=fade((2, 3, 8), 0.85 * va))
+        d.text((bx, yy), word, font=f, fill=fade(AMBER, 0.95 * va))
+
+
+
+    # the label: this is a staged choir, and the audience should know it.
+    # 层数是实测的（`voices.layers`），所以这里写的就是量出来的几个人，不是"最多 3"。
+    fsm = font(tk.MONO, 9)
+    lab = " VOICES %02d " % layers
+    tw2 = d.textlength(lab, font=fsm)
+    ly = top - 20
+    d.rectangle([cx - tw2 / 2 - 6, ly, cx + tw2 / 2 + 6, ly + 14], fill=fade(BG, 0.85 * a))
+    tk.text(d, (cx - tw2 / 2, ly + 2), lab, fsm, AMBER, 0.60 * a)
+    # 六个人还没进来——名单在 4:25 的点名册上（`VOICES 06 PENDING` 也在回执的抬头）
+    r = " 06 PENDING "
+    tw3 = d.textlength(r, font=fsm)
+    d.rectangle([cx + tw2 / 2 + 12, ly, cx + tw2 / 2 + 12 + tw3 + 6, ly + 14],
+                fill=fade(BG, 0.85 * a))
+    tk.text(d, (cx + tw2 / 2 + 16, ly + 2), r, fsm, RED, 0.55 * a)
 
 
 

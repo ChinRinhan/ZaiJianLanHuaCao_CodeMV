@@ -1,0 +1,42 @@
+{
+  "B1_demands": {
+    "frames": 776,
+    "mean_layers": 2.907,
+    "p50": 3,
+    "p90": 5,
+    "max": 8,
+    "frac_multi": 0.874
+  },
+  "B1_release": {
+    "frames": 574,
+    "mean_layers": 3.446,
+    "p50": 3,
+    "p90": 5,
+    "max": 9,
+    "frac_multi": 0.929
+  },
+  "B2_demands": {
+    "frames": 734,
+    "mean_layers": 3.173,
+    "p50": 3,
+    "p90": 5,
+    "max": 8,
+    "frac_multi": 0.935
+  },
+  "B2_release": {
+    "frames": 821,
+    "mean_layers": 2.9,
+    "p50": 3,
+    "p90": 5,
+    "max": 7,
+    "frac_multi": 0.866
+  },
+  "A2_chorus": {
+    "frames": 1172,
+    "mean_layers": 3.298,
+    "p50": 3,
+    "p90": 5,
+    "max": 9,
+    "frac_multi": 0.904
+  }
+}

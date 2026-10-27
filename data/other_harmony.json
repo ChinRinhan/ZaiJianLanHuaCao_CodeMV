@@ -1,0 +1,38 @@
+{
+  "B1_demands": {
+    "frames": 776,
+    "nonharmonic_share_mean": 0.1307,
+    "nonharmonic_share_p75": 0.1866,
+    "lead_f0_median": 183.0322265625
+  },
+  "B1_release": {
+    "frames": 574,
+    "nonharmonic_share_mean": 0.11,
+    "nonharmonic_share_p75": 0.1467,
+    "lead_f0_median": 161.4990234375
+  },
+  "B2_demands": {
+    "frames": 734,
+    "nonharmonic_share_mean": 0.1102,
+    "nonharmonic_share_p75": 0.1452,
+    "lead_f0_median": 172.265625
+  },
+  "B2_release": {
+    "frames": 821,
+    "nonharmonic_share_mean": 0.1039,
+    "nonharmonic_share_p75": 0.1491,
+    "lead_f0_median": 183.0322265625
+  },
+  "A2_chorus": {
+    "frames": 1172,
+    "nonharmonic_share_mean": 0.1429,
+    "nonharmonic_share_p75": 0.2106,
+    "lead_f0_median": 516.796875
+  },
+  "A1_quiet": {
+    "frames": 2576,
+    "nonharmonic_share_mean": 0.1183,
+    "nonharmonic_share_p75": 0.1766,
+    "lead_f0_median": 495.263671875
+  }
+}

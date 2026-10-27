@@ -347,7 +347,9 @@ def _grid_track(d, box, t, onsets, alpha, steps: int = 16):
     base = math.floor(cur / 4.0) * 4.0                 # the bar we are in
     for k in range(steps):
         cx0 = x0 + k * cw
-        cx1 = cx0 + cw - 1.5
+        # 轨被压窄时 cw 可能小于 1.5 px，这时 cx1 会跑到 cx0 左边，PIL 直接抛
+        # "x1 must be greater than or equal to x0"（实测在 4:04.85 崩在鼓的步进格上）。
+        cx1 = max(cx0, cx0 + cw - 1.5)
         # step_t0 is a BEAT index, the onset times are SECONDS — the first version compared
         # the two directly and no cell ever lit. Convert through the local beat length.
         step_t0 = base + k * 0.25

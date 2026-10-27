@@ -46,6 +46,7 @@ import scene
 import score3
 import shots
 import tk
+import voices
 from layout4 import AMBER, BG, BLUE_HI, BLUE_MID, GREEN, RED, fade, font, mix
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -957,6 +958,116 @@ B2_DRAIN = 260.9                              # 鼓贝斯退场
 B2_ZERO = 265.0                               # 内环闭合 = 4:25
 B2_CHOIR_T0, B2_CHOIR_DT = 265.10, 0.17       # 六格点名，一格 0.17 s
 
+# ---- B② 的复声：对原曲听感的视觉转写（**不是**从 stems 测出来的）--------------------
+# 导演（10:5x）：「第一次『宣言』的时候明显只有宝哥一个声音，到 4:05 的第二次的时候，就有
+# 宝哥多音轨的和声或『合唱』，刚好预告最后的『齐唱』段」。
+#
+# 诚实性先说清楚：三次探针（src/probes/vocal_layers.py、vocal_harmony.py、vocal_pitches.py）
+# 都证明**我们手上的 stems 量不出这个差别**——Demucs 把原唱的所有人声塞进 vocals 轨，
+# 1:43 与 4:05 的同时音高数分别是 2.57 / 2.79 声部（差异在噪声内），而真正六人齐唱的 A②
+# 只有 1.49。导演的判断来自**原曲的听感**，不是我们能分出来的轨。
+#
+# 所以这里的复声是**量出来的**：导演放进来原曲的 17 轨分轨，里面 `主唱人声` 与
+# `背景和声` 是分开的。探针 `src/probes/backing_vocal.py` 量到第 4 句的和声相对电平是
+# **B① −9.7 dB → B② −5.0 dB**——第二次宣言时合唱涌上来，主唱同时退了 2 dB。
+# 画面照这个画：`voices.layers("B2", n)` 直接返回层数，和声的亮度也是量出来的比值。
+# 详见 `src/voices.py`（那里写了完整的证据链：为什么 Demucs 的四轨量不出来）。
+#
+# 画面仍然**明说**：叠影旁写着 `VOICES 0n/03` 与 `06 PENDING`——观众知道这是三个人，
+# 而"六个人"要到 4:25 的点名册才真的进来。
+#
+# （影层的音程/透明度/错位在 layout4.B2_SHADOWS——layout4 不 import scene4。）
+
+# ---- 04:05.79 的入口：过载 → 断电 → 自检上电（导演 10:4x 拍板 B）---------------------
+# 最后一波把机器一路顶到过载（ov 0.80，钉子钉满），所以它不该被"淡出"——它是**被打断**的。
+# 先死一下（全黑，只剩一条余晖扫描线），再自检上电。
+# 塌缩在断电**之前**（frame() 里的 B2_SQUASH_T0，跨在楼层 2 的尾帧上）：满屏→一条线→全黑，
+# 是一台 CRT 死掉的过程；直接满屏→全黑是 14.16 的帧差（平时 2.06）。
+B2_DEAD = 0.42          # 断电时长（10 帧）
+B2_BOOT = 1.15          # 自检 + 上电
+
+
+def _power_entry(img, t):
+    """B② 的入口画面：断电 / 自检上电。只作用于 04:05.79 之后的 ~1.6 s。"""
+    u = t - B2_T0
+    W, H = img.size
+    if u < B2_DEAD:
+        out = Image.new("RGB", (W, H), (2, 3, 8))
+        dd = ImageDraw.Draw(out)
+        cy = H // 2
+        k = 1.0 - u / B2_DEAD                      # 余晖在衰减
+        dd.line([(0, cy - 9), (W, cy - 9)], fill=(26, 34, 54), width=1)
+        dd.line([(0, cy), (W, cy)], fill=(210, 226, 255), width=2 if k > 0.45 else 1)
+        dd.text((W // 2 - 52, cy - 32), "POWER LOSS", font=font(tk.MONO, 11),
+                fill=(140, 162, 192))
+        return out
+    p = _smooth((u - B2_DEAD) / B2_BOOT)
+    out = Image.blend(Image.new("RGB", (W, H), (2, 3, 8)), img, p)
+    dd = ImageDraw.Draw(out)
+    cy = int(H * (0.10 + 0.80 * p))                # 自检那条亮线从上往下扫
+    dd.line([(0, cy), (W, cy)], fill=(255, 246, 224), width=2)
+    if p < 0.80:
+        dd.text((W // 2 - 62, cy + 9), "SELF TEST %3d%%" % int(p * 100),
+                font=font(tk.MONO, 9), fill=(255, 196, 120))
+    return out
+
+
+def _receipt(img, t, b2, z):
+    """B② 的「回执」：四句「给我…」逐句盖章，04:25 打印 PAID 2:25。
+
+    B① 是**开价**（五格表单，第 05 格从第一帧就空着，01:57 才写 02:25）；B② 不重播那张表，
+    它是同一个故事的第二半：机器把诉求一行一行**受理**，最后**兑付**。位置在实体列原本的
+    PLAYLIST 上——机器从"放唱片"切成"打回执"，这本身就是"新阶段"。
+    """
+    ent = (z or {}).get("entity")
+    if not ent or ent[2] - ent[0] < 80:
+        return img
+    x0, y0, x1, y1 = ent
+    bx0, bx1 = x0 + 8, x1 - 8
+    by0 = y0 + int((y1 - y0) * 0.55)
+    by1 = y1 - 20
+    if by1 - by0 < 70:
+        return img
+    drain = (b2 or {}).get("drain", 0.0)
+    a = 1.0 - 0.55 * drain
+    crop = img.crop([bx0, by0, bx1, by1])
+    img.paste(Image.blend(crop, Image.new("RGB", crop.size, (7, 6, 4)), min(1.0, a)),
+              (bx0, by0))
+    d = ImageDraw.Draw(img)
+    d.rectangle([bx0, by0, bx1, by1], outline=fade(AMBER, 0.42 * a))
+    d.text((bx0 + 6, by0 + 4), "RECEIPT // SECOND DEMAND", font=font(tk.MONO, 8),
+           fill=fade(AMBER, 0.72 * a))
+    # 名单预告：六个人还没进来，但名单已经在机器手里（唱片内页写着「六人齐唱」）。
+    # 这一行就是第二次宣言的"预告"，也让复声叠影有个着落：现在是 3 层，6 个人在路上。
+    d.text((bx1 - 108, by0 + 4), "VOICES 06 PENDING", font=font(tk.MONO, 8),
+           fill=fade(RED, 0.55 * a))
+    ry = by0 + 20
+    for i, tt in enumerate(B2_ACCT):
+        landed = t >= tt
+        age = t - tt
+        d.text((bx0 + 6, ry), "#%02d" % (i + 1), font=font(tk.MONO, 8),
+               fill=fade(AMBER, (0.55 if landed else 0.18) * a))
+        d.text((bx0 + 30, ry), "%02d:%05.2f" % (int(tt) // 60, tt % 60),
+               font=font(tk.MONO, 8), fill=fade(AMBER, (0.68 if landed else 0.16) * a))
+        if landed:
+            sa = 0.55 + 0.45 * max(0.0, 1.0 - age / 0.35)   # 章落下时亮一下，然后常驻
+            d.rectangle([bx1 - 52, ry - 1, bx1 - 8, ry + 9], outline=fade(AMBER, sa * a))
+            d.text((bx1 - 45, ry), "OK", font=font(tk.MONO, 8), fill=fade(AMBER, sa * a))
+        ry += 15
+    d.line([(bx0 + 4, ry + 1), (bx1 - 4, ry + 1)], fill=fade(AMBER, 0.24 * a))
+    if (b2 or {}).get("zero"):
+        pa = 1.0 - 0.20 * drain
+        d.text((bx0 + 6, ry + 5), "PAID", font=font(tk.MONO, 12), fill=fade(AMBER, 0.95 * pa))
+        d.text((bx0 + 54, ry + 7), "2:25", font=font(tk.MONO, 12),
+               fill=fade((255, 246, 224), 0.95 * pa))
+        d.rectangle([bx1 - 64, ry + 4, bx1 - 8, ry + 24], outline=fade(AMBER, 0.85 * pa),
+                    width=2)
+        d.text((bx1 - 57, ry + 9), "PAID", font=font(tk.MONO, 8), fill=fade(AMBER, 0.85 * pa))
+    else:
+        d.text((bx0 + 6, ry + 6), "PENDING ...", font=font(tk.MONO, 9),
+               fill=fade(AMBER, 0.28 * a))
+    return img
+
 
 def _b2_state(t):
     """B② 的状态；不在 B② 返回 None。"""
@@ -970,6 +1081,38 @@ def _b2_state(t):
     return {"acct": acct, "enter": enter, "drain": drain, "choir": choir,
             "call": (choir - 1) if choir else -1,
             "flash": flash, "zero": t >= B2_ZERO}
+
+
+# B② 的四句「给我…」——和 B① 同一批字（`word_times_v2` 的实测行）
+B2_WORDS = ("给我一把吉他我来唱", "给我一枝铅笔让我来画",
+            "给我一对翅膀我来飞", "给我一个空间让我转圈")
+
+
+def _b2_voice_state(t):
+    """B② 四句「给我…」的复声层数（None = 现在没有字）。
+
+    层数**不是编的**：`voices.layers("B2", n)` 读的是实测数据（`data/backing_vocal.json`，
+    由 `src/probes/backing_vocal.py` 在原曲分轨的 `主唱人声` / `背景和声` 两轨上量出来）：
+    B② 四句的和声相对电平是 −7.4 / −6.6 / −6.3 / −5.0 dB——合唱在第二次宣言时一层层涌上来；
+    B① 全程 −8.6 ~ −9.8 dB，几乎只有一个人。详见 `src/voices.py` 的证据链。
+    """
+    if not (B2_T0 <= t < B2_DRAIN):
+        return None
+    idx = -1
+    for i, tt in enumerate(B2_ACCT):
+        if t >= tt:
+            idx = i
+    if idx < 0:
+        return None
+    tt = B2_ACCT[idx]
+    nxt = B2_ACCT[idx + 1] if idx + 1 < len(B2_ACCT) else B2_DRAIN
+    # 落字后 0.16 s 内是"砸下来"，之后常驻；下一句开始前 0.12 s 淡出（和 B① 同一手法）
+    a_in = 0.42 + 0.58 * min(1.0, (t - tt) / 0.16)
+    a_out = min(1.0, max(0.0, (nxt - t) / 0.12))
+    return {"idx": idx, "word": B2_WORDS[idx], "layers": voices.layers("B2", idx + 1),
+            "shadow": voices.shadow_alpha("B2", idx + 1),
+            "alpha": a_in * a_out, "age": t - tt}
+
 
 
 # ---- the cut: a CRT channel change, not a telegram from A to B ----------------------
@@ -992,6 +1135,8 @@ CUT_FRAMES = 3.0        # length of the whole gesture, in frames (0 disables it)
 # 103.84 is a chapter boundary, so it is not a mode change — but it is the loudest cut in
 # the film (quiet valley -> four demands over the whole world), and 导演 said the entry
 # into B① is the most abrupt moment in it. One shutter there costs one frame.
+# 245.79 **不在**这里：入口的塌缩由 `frame()` 自己管（B2_SQUASH_T0 起，跨在楼层 2 的
+# 尾帧上），因为闸门如果落在 245.79，塌的就是黑屏而不是画面。
 _EXTRA_CUTS = (103.84, 265.0)
 _CUTS = tuple(b[1] for a, b in zip(shots.SNAPPED, shots.SNAPPED[1:]) if a[3] != b[3]) \
     + _EXTRA_CUTS
@@ -1038,11 +1183,23 @@ def _cut_shutter(t: float):
 
 
 # ---- the frame ----------------------------------------------------------------------
+# 04:05.79 的入口：画面先塌成一条线（0.24 s），再断电。塌缩必须发生在**断电之前**——
+# 之前把 245.79 放进 _EXTRA_CUTS，结果闸门落在楼层 3 的黑屏上，等于没塌，而"满屏→全黑"
+# 是 14.16 的帧差（平时 2.06）。现在塌缩由 frame() 自己管，跨在楼层 2 的尾帧上。
+B2_SQUASH_T0 = 245.55
+
+
 def frame(t: float) -> Image.Image:
     """One frame of the four-zone film. Pure function of t."""
     img = _plain_frame(t)
     s = _cut_shutter(t)
-    return img if s is None else _squash(img, s)
+    if s is not None:
+        img = _squash(img, s)
+    # 入口塌缩：最后一波把机器顶到过载，画面被压成一条亮线，然后断电
+    if B2_SQUASH_T0 <= t < B2_T0:
+        u = (t - B2_SQUASH_T0) / (B2_T0 - B2_SQUASH_T0)
+        img = _squash(img, max(0.0, 1.0 - u) ** 0.85)
+    return img
 
 
 def _plain_frame(t: float) -> Image.Image:
@@ -1092,6 +1249,12 @@ def _body(t: float) -> Image.Image:
     # B①' demands are stamped over the world; the same words must not also crawl
     # through the token band (plan/05 §4: one text, one place)
     if big:
+        chars, typed, struck = [], 0, None
+
+    # B② 的复声叠影也占着"这一句字"——同一条规矩：一句字只在一个地方出现，
+    # 所以 token 带在复声期间不重复打这四个字（否则世界和底栏同时亮同一句）。
+    b2_voices = _b2_voice_state(t)
+    if b2_voices:
         chars, typed, struck = [], 0, None
 
     # the UNDO: one character goes back to its pre-rewrite version for 0.6 s
@@ -1162,7 +1325,7 @@ def _body(t: float) -> Image.Image:
             state=state, playing=playing, paper_kw=paper_kw, old=old, cue=cue,
             times=times, boot=boot)
 
-    return layout4.frame(
+    img = layout4.frame(
         t, mode="W", collapse=collapse,
         entity_kw=ent, content_kw=kw,
         score=scene.score_at(t), level=scene.level_at(t),
@@ -1174,8 +1337,15 @@ def _body(t: float) -> Image.Image:
         cell_px=(cs or {}).get("w", 0.0), status=_countdown(t), dial=_dial_state(t),
         chip_now=_countdown(t) is not None,
         glow=0.30 + 0.16 * _rise(t),
-        dim=dim, chorus=b2, scoreline=sc,
+        dim=dim, chorus=b2, scoreline=sc, voices=b2_voices,
         log=_console_for(t) if boot is not None else None)
+    # B②：回执 + 入口断电/上电。两层都画在合成之后——它们属于"机器的界面"，
+    # 不该被世界/列自己的 alpha 稀释（回执自己按 drain 淡出，断电是硬切）。
+    if B2_T0 <= t < B2_T1:
+        img = _receipt(img, t, b2, layout4.zones(collapse, "W", 0.0))
+        if t < B2_T0 + B2_DEAD + B2_BOOT:
+            img = _power_entry(img, t)
+    return img
 
 
 if __name__ == "__main__":

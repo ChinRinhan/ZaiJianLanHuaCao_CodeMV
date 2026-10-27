@@ -5,6 +5,11 @@ data/audio/*.npy
 data/audio/*.wav
 data/audio/stems_wav/
 data/models/
+data/audio/stems_wav/
+# 导演放进来的原曲分轨（257 MB，版权素材，不进仓库）：
+# 「再见 兰花草 - 张雨生_分轨/」——探针 src/probes/backing_vocal.py 从它量出
+# data/backing_vocal.json（那份 JSON 进仓库，量出来的结论因此可复核）。
+再见 兰花草 - 张雨生_分轨/
 pip-*
 __pycache__/
 .scratch/

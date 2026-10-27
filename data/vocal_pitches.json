@@ -1,0 +1,42 @@
+{
+  "B1_demands": {
+    "frames": 1568,
+    "voices_mean": 2.573,
+    "voices_p50": 3,
+    "voices_p90": 4,
+    "voices_max": 5,
+    "frac_2plus": 0.886
+  },
+  "B1_release": {
+    "frames": 1163,
+    "voices_mean": 2.663,
+    "voices_p50": 3,
+    "voices_p90": 4,
+    "voices_max": 5,
+    "frac_2plus": 0.857
+  },
+  "B2_demands": {
+    "frames": 1483,
+    "voices_mean": 2.792,
+    "voices_p50": 3,
+    "voices_p90": 4,
+    "voices_max": 5,
+    "frac_2plus": 0.931
+  },
+  "B2_release": {
+    "frames": 1658,
+    "voices_mean": 2.241,
+    "voices_p50": 2,
+    "voices_p90": 4,
+    "voices_max": 5,
+    "frac_2plus": 0.747
+  },
+  "A2_chorus": {
+    "frames": 275,
+    "voices_mean": 1.491,
+    "voices_p50": 1,
+    "voices_p90": 2,
+    "voices_max": 5,
+    "frac_2plus": 0.429
+  }
+}
