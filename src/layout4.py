@@ -1279,9 +1279,7 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
         _b2_voices(img, z.get("content") or z.get("paper"), voices)
     # A② 的合唱收敛：同一层（world），同样在 post() 之前。
     if chorus_fx:
-        # the roster goes under the light bands (top band, below the WORLD label), and
-        # the bands themselves are the middle third — they do not overlap.
-        _chorus_roster(img, z.get("content") or z.get("paper"), chorus_fx)
+        # 点名册不再是独立的读表：六个 singer 方框就是点名册（见 _chorus_converge）
         _chorus_converge(img, z.get("content") or z.get("paper"), chorus_fx)
     img = tk.post(img, glow)
     if cue:
@@ -1486,51 +1484,50 @@ def _b2_voices(img: Image.Image, rect, st) -> None:
     cx = (x0 + x1) / 2
     prog = min(1.0, max(0.0, float(st.get("age", 0.0)) / 0.9))
 
-    # 几条谱行 = 几个人在唱。层数是**量出来的**（`voices.layers`），所以这里只能画这么多行，
+    # 几条谱行 = 几个人在唱。层数是**量出来的**（`voices.line_at`），所以这里只能画这么多行，
     # 不能"画三行再把多余的调暗"——那等于编一个合唱出来。
+    #
+    # **一行词，其余是唱腔**（导演 23:45：「这段的和声 voices 不是唱的词，而是『啦啦啦』
+    # 声音的唱腔附和」）。上一版把同一句词写三遍，等于说和声也在唱这句词——那是事实错误。
+    # 现在：V1 是主唱，写字；V2/V3 是和声，写的是张口音的唱腔（LA··LA··），颜色也不同，
+    # 一眼分得出"有人在唱词"和"有人在和"。
     FS = 22
+    FS_BACK = 19
     LEAD = 34
     f = font(tk.CJK, FS)
+    f_back = font(tk.MONO, FS_BACK)
     tw = d.textlength(word, font=f)
+    back_text = "LA··LA··LA··LA"
+    tw_back = d.textlength(back_text, font=f_back)
     top = y0 + (y1 - y0) * 0.18
     for v in range(layers):
-        off = (0, 44, 88)[v]                     # 逐行右移：错开才看得出是几个人在唱
-        bx = cx - tw / 2 + off
+        lead = (v == 0)
+        txt = word if lead else back_text
+        ff = f if lead else f_back
+        twr = tw if lead else tw_back
+        off = (0, 44, 88)[v]                     # 逐行右移：错开才看得出是几个人
+        bx = cx - twr / 2 + off
         yy = top + v * LEAD
         # 主唱最亮；和声那几层按实测的相对电平给亮度（shadow 越大 = 和声越近 = 越亮）
-        va = a * (0.95 if v == 0 else shadow * (1.0 - 0.18 * (v - 1)))
+        va = a * (0.95 if lead else shadow * (1.0 - 0.18 * (v - 1)))
+        col = AMBER if lead else BLUE_HI
         # 每行左端：声部标 + 一小段谱线（标要亮，否则在山脊上看不见）
-        lx = cx - tw / 2 - 46
+        lx = cx - twr / 2 - 52
         d.text((lx, yy + 2), "V%d" % (v + 1), font=font(tk.MONO_B, 9),
-               fill=fade(AMBER, 0.85 * va))
-        d.line([(lx + 22, yy + FS * 0.95), (lx + 32, yy + FS * 0.95)],
-               fill=fade(AMBER, 0.55 * va), width=2)
+               fill=fade(col, 0.85 * va))
+        d.text((lx + 16, yy + 3), "LEAD" if lead else "BACK",
+               font=font(tk.MONO, 7), fill=fade(col, 0.95 * va))
+        d.line([(lx + 40, yy + FS * 0.95), (lx + 50, yy + FS * 0.95)],
+               fill=fade(col, 0.55 * va), width=2)
         # the voice's own progress: a bright bar under the row
-        bw = tw * prog
+        bw = twr * prog
         d.rectangle([bx, yy + FS * 1.02, bx + bw, yy + FS * 1.02 + 3],
-                    fill=fade(AMBER, 0.75 * va))
-        d.text((bx, yy), word, font=f, fill=fade((2, 3, 8), 0.85 * va),
-               stroke_width=3, stroke_fill=fade((2, 3, 8), 0.85 * va))
-        d.text((bx, yy), word, font=f, fill=fade(AMBER, 0.95 * va))
-
-
-
-    # the label: this is a staged choir, and the audience should know it.
-    # 层数是实测的（`voices.layers`），所以这里写的就是量出来的几个人，不是"最多 3"。
-    fsm = font(tk.MONO, 9)
-    lab = " VOICES %02d " % layers
-    tw2 = d.textlength(lab, font=fsm)
-    ly = top - 20
-    d.rectangle([cx - tw2 / 2 - 6, ly, cx + tw2 / 2 + 6, ly + 14], fill=fade(BG, 0.85 * a))
-    tk.text(d, (cx - tw2 / 2, ly + 2), lab, fsm, AMBER, 0.60 * a)
-    # 六个人还没进来——名单在 4:25 的点名册上（`VOICES 06 PENDING` 也在回执的抬头）
-    r = " 06 PENDING "
-    tw3 = d.textlength(r, font=fsm)
-    d.rectangle([cx + tw2 / 2 + 12, ly, cx + tw2 / 2 + 12 + tw3 + 6, ly + 14],
-                fill=fade(BG, 0.85 * a))
-    tk.text(d, (cx + tw2 / 2 + 16, ly + 2), r, fsm, RED, 0.55 * a)
-
-
+                    fill=fade(col, 0.75 * va))
+        # 唱腔那几行不描粗黑边：它们本来就该"比词轻"，描边会把它们压成黑块
+        d.text((bx, yy), txt, font=ff, fill=fade((2, 3, 8), 0.85 * va),
+               stroke_width=(3 if lead else 2),
+               stroke_fill=fade((2, 3, 8), 0.85 * va))
+        d.text((bx, yy), txt, font=ff, fill=fade(col, 0.95 * va))
 
 
 def _ribbon(img: Image.Image, pts, color, *, half: float = 6.0, core: float = 0.42,
@@ -1601,259 +1598,185 @@ def _ribbon(img: Image.Image, pts, color, *, half: float = 6.0, core: float = 0.
         img.paste(Image.new("RGB", (bw, bh), hot), (bx0, by0), m1)
 
 
-def _chorus_roster(img: Image.Image, rect, st) -> None:
-    """The six-voice roster, in the world's top band, during the chorus.
-
-    The `CH 1–6` cells in the ops column are **invisible** in the film: 80×30 px in the
-    1280×720 render scales to 20×7 px on screen, and an audit measured that as "a small
-    yellow block nobody can read". They were there for the whole film just for the moment
-    six people sing together — and the moment they light up (B②'s last second) is the
-    moment the frame goes black, so nobody sees it.
-
-    So the roster moves into the world's top band, which is **empty** during the chorus
-    (the light bands sit in the middle third, 198–428 px; the top 150 px has nothing in
-    it). There it is big enough to read, and it is driven by the **measured** number of
-    singers in the line that is being sung — so it answers a real question: "who is
-    singing this line right now?".
-
-    导演拍板：「既然 A② 就是六人齐唱，点名应该在 A② 的头一句上点完——
-    B② 结尾留名单预告，A② 一开口，六个格子逐个点亮」。
-    """
-    if not st:
-        return
-    a = float(st.get("alpha", 0.0))
-    if a <= 0.02:
-        return
-    nv = max(1, min(6, int(st.get("voices", 1))))
-    # the reveal: cells light up one by one at A②'s opening. During the reveal the
-    # number is "how many have been called so far"; after it, it is "how many are
-    # singing this line" — the roster answers the question the light bands pose.
-    rs = st.get("roster") or {}
-    opening = max(1, min(6, int(rs.get("open", 6))))
-    shown = min(opening, nv) if opening < 6 else nv
-    # a cell lights brighter at the instant it is called (the 0.22 s beat)
-    just_called = opening < 6 and shown == opening
-    x0, y0, x1, y1 = rect
-    w = x1 - x0
-    d = ImageDraw.Draw(img)
-
-    # the roster lives in the world's top band, left-aligned under the WORLD label
-    # (which sits at y0+6). One cell per voice, wide enough to read: 26 px each.
-    cell_w, gap = 26, 6
-    ry = y0 + 30
-    rx0 = x0 + 10
-    label = "SINGERS %02d/06" % shown
-    f_lab = font(tk.MONO_B, 10)
-    tw = d.textlength(label, font=f_lab)
-    tk.text(d, (rx0 + 6 * (cell_w + gap) + 12, ry + 3), label, f_lab,
-            AMBER, 0.85 * a)
-
-    for i in range(6):
-        cx = rx0 + i * (cell_w + gap)
-        on = i < shown
-        # the cell that just lit is the one being called — it flashes a little brighter
-        hot = on and i == shown - 1 and just_called
-        col = AMBER if on else (96, 74, 30)
-        la = (0.92 if on else 0.34) + (0.30 if hot else 0.0)
-        d.rectangle([cx, ry, cx + cell_w, ry + 22], outline=fade(col, min(1.0, la * a)),
-                    fill=fade(col, (0.42 if on else 0.10) * la * a))
-        tk.text(d, (cx + 7, ry + 4), str(i + 1), font(tk.MONO_B, 12), col,
-                min(1.0, (0.95 if on else 0.42) * a))
-
-    # a thin rule under the roster separates it from the light bands below
-    d.line([(rx0, ry + 28), (x1 - 20, ry + 28)], fill=fade(AMBER, 0.22 * a))
-
-
 CHORUS_GATHER_X = 0.62          # 汇聚点在世界区宽度的百分之几处
 CHORUS_CABLE = (0.000, 0.009, 0.018, -0.018, -0.009, -0.000)  # 光缆六股（×世界高度）
+SINGER_W, SINGER_H, SINGER_GAP = 76, 48, 14   # 左边六个 singer 方框
+
+
+def _bez_pts(p0, p1, p2, p3, n=40):
+    out = []
+    for i in range(n + 1):
+        u = i / n
+        v = 1 - u
+        out.append((v**3*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u**3*p3[0],
+                    v**3*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u**3*p3[1]))
+    return out
+
+
+def _bez_at(pts, u):
+    """Point at parameter u (0..1) along a polyline."""
+    if not pts:
+        return (0.0, 0.0)
+    u = max(0.0, min(1.0, u))
+    f = u * (len(pts) - 1)
+    i = min(len(pts) - 2, int(f))
+    t = f - i
+    (ax, ay), (bx, by) = pts[i], pts[i + 1]
+    return (ax + (bx - ax) * t, ay + (by - ay) * t)
 
 
 def _chorus_converge(img: Image.Image, rect, st) -> None:
-    """A②/A③/A④ 的合唱：几条声部收敛成一条。
+    """A②/A③/A④ 的合唱：六个 singer 站在左边，声部开唱时数据汇到中间。
 
-    导演（12:15）：「我不想回到开头那样，我认为不够亮眼，我需要在 4:25 之后有『完全不同的感受』」
-    导演（12:14）：「去原案仓库里找找思路或者画面线索」
+    导演（23:30）：「把 singer 的方框站住画面左边，一共六个。每有一个声部开唱，
+    就有一段『数据』汇聚到中间」。
 
-    原案的合唱段（`sec_chorus1.py` / `sec_chorus2.py`）给的隐喻是**向量收敛**：
-    `shot_unite` 让 `me` 和 `you` 从两侧飞向中央融成一个 `we`，下面一张 t-SNE 散点图，
-    底下写 `cos(me, you) = 0.9939`；`shot_flood` 更极端——60×28 的格子阵被 `me` 一格格淹没。
-    `shot_deeply` 再补一个注意力图和 `attn(me → you) = 1.000`。
+    **为什么这比纯光带好**：光带是抽象的——六条线收成一条，观众不知道那六条是**六个人**。
+    方框是**人**：六个框站在左边，谁在唱谁亮，数据从那个框里流出去、汇到中间。
+    于是"收敛"不再是几何运动，而是**六个人各出一份数据合成一个结果**——
+    这正是这首歌在做的事（六个人唱同一句），也是这台机器在做的事（把声音读成数据）。
 
-    我们借它的**隐喻**，不用它的数字。`src/probes/chorus_cosine.py` 在导演放进来的 17 轨
-    分轨上量了主唱与背景和声的谱相似度：**A② 是 0.513**（和声只差 3.9 dB，合唱真的唱成一片），
-    B② 只有 0.277，A④ 是 0.375。所以画面上那个数是**我们的**、且随段落变化。
+    它同时把点名册和合唱合成了一件事：以前点名册在左上角是一套语言、光带是另一套，
+    现在方框既是点名册（六个 singer）也是合唱的源头。
 
-    画法：几条声部线从左侧散开，各自带自己的头（V1..V6），在句尾向中线收敛成一条亮线；
-    汇合处打出 `cos(v1..vN)`，底下一行 `VOICES NN -> 01`。
+    画法：
+      六个框（V1..V6）竖排在左边；实测 nv 个人在唱 → 前 nv 个框亮
+      每个亮着的框发一条数据通道到汇聚点
+      每个字（实测起音）从每个亮着的框发出一段**数据包**，沿通道流向汇聚点
+      汇聚点之后是一条六股光缆向右（"一个人唱出去"）
+      汇聚处打 cos(v1..vN)
     """
     if not st:
         return
     a = float(st.get("alpha", 0.0))
     if a <= 0.01:
         return
-    g = float(st.get("gather", 0.0))          # 0 = 散开, 1 = 收成一条
-    nv = int(st.get("voices", 6))            # 几个人在唱（实测，见 src/voices.py）
-    nv = max(1, min(6, nv))
+    g = float(st.get("gather", 0.0))
+    nv = max(1, min(6, int(st.get("voices", 6))))
     x0, y0, x1, y1 = rect
     w, h = x1 - x0, y1 - y0
     d = ImageDraw.Draw(img)
     mid = y0 + h * 0.46
+    lvl = float(st.get("level", 0.5))
+    puls = float(st.get("pulse", 0.0))
+    waves = list(st.get("waves") or ())
+    cos = float(st.get("cos", 0.0))
 
-    # 六条线的散开/收拢位置；只用前 nv 条（nv 是实测的人数）
-    SPREAD = (0.40, 0.28, 0.17, -0.17, -0.28, -0.40)
-    GATHER = (0.055, 0.035, 0.015, -0.015, -0.035, -0.055)
-    # 线从画外进来、收拢点靠左：世界在播放台滑出后从画面最左边开始，线要走半张画面才收拢
-    # 的话，路上那段是淡的，等于看不见——所以路要短，收拢要早。
-    sx = x0 - 40
+    # --- 点名：A② 开口逐格点亮（1.32 s），之后跟着每句的实测人数 --------------
+    opening = int((st.get("roster") or {}).get("open", 6))
+    lit = opening if opening < 6 else nv
+
+    # --- 几何 -----------------------------------------------------------------
+    bx0 = x0 + 16
+    bx1 = bx0 + SINGER_W
+    step = SINGER_H + SINGER_GAP
+    cy0 = mid - step * 2.5
     ex = x0 + w * CHORUS_GATHER_X
+    gx1 = x0 + w * 0.94
 
-    def _bez(p0, p1, p2, p3, n=44):
-        pts = []
-        for i in range(n + 1):
-            u = i / n
-            v = 1 - u
-            pts.append((v**3*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u**3*p3[0],
-                        v**3*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u**3*p3[1]))
-        return pts
+    paths = []
+    for i in range(6):
+        cy = cy0 + step * i
+        paths.append(_bez_pts((bx1, cy),
+                              (bx1 + (ex - bx1) * 0.45, cy),
+                              (ex - (ex - bx1) * 0.30, mid),
+                              (ex, mid)))
 
-    for i in range(nv):
-        # 声部 i 的**起点**高度：从"散开位"向"收拢位"滑，滑多少由 gather 决定。
-        # 光带的长度始终是整条（从画外左缘到收拢点），所以散开时看得到的是几条铺开的带，
-        # 收拢时它们滑到中线叠成一条。
-        # （旧画法：线从画外一点点"长"出来，gather=0 时只画 8%，那 8% 还在画外——于是每句
-        #  开头的那一两秒画面是空的。现在散开就是真的散开。）
-        gi, si = GATHER[i], SPREAD[i]
-        y_start = mid + h * (gi + (1.0 - g) * (si - gi)) / 2
-        y_end = mid + h * gi / 2
-        pts = _bez((sx, y_start), (x0 + (ex - x0) * 0.38, y_start),
-                   (ex - (ex - x0) * 0.26, y_end), (ex, y_end))
-        head = pts[-1]
+    # --- 数据通道 + 数据包 -----------------------------------------------------
+    for i in range(6):
+        if i >= lit:
+            continue
+        pts = paths[i]
+        hot = i < nv
         col = AMBER if i % 2 == 0 else BLUE_HI
-        # **光带，不是细线**（导演拍板）。原因很实在：这幅画面里本来就有一堆细线——
-        # `tk.terrain` 给每层山脊画 1px 的 rim light。合唱如果也用细线，观众在视觉上
-        # 分不出哪条是"山"、哪条是"人"，线压在山上就等于消失。
-        # 画法：沿路径生成一个**有宽度的多边形**，里面按到中心线的距离做软边渐变
-        # （中心最亮，两侧渐隐）——是一条连续的光带，不是几条并排的线。
-        va = a * (0.72 + 0.28 * g)
-        # --- 三种动态（导演 22:39：线束只有"舒张"，没有表现力）-------------------
-        # 粗细：那一句的实测响度。A④ 首句 +2.5 dB 比 A② 第 5 句 −6.9 dB 粗得多。
-        level = float(st.get("level", 0.5))
-        half = 2.8 + 3.4 * level
-        # 脉动：每个字的实测起音让整束光闪一下。闪的是**芯的温度**——琥珀色的芯在字落下的
-        # 一瞬烧成近白，然后退回琥珀。比调 alpha 有效：芯是实色的，alpha 只影响边缘。
-        pulse = float(st.get("pulse", 0.0))
-        hot = mix((255, 214, 150), (255, 255, 250), 0.35 + 0.65 * pulse)
-        _ribbon(img, pts, col, half=half, core=0.40, alpha=va, hot=hot)
-        # 行波：每个字发出一道亮波，沿光带流向汇聚点。声音从嘴里出来、汇到同一点。
-        # 用**宽而软**的一段，不是一根白条——白条读成"一条白线"，软波才读成"一道光在走"。
-        for wv in (st.get("waves") or ()):
-            bpos = float(wv.get("band", -1.0))
-            if bpos < 0.0:
+        # the channel: a thin conduit, dimmer than the data
+        d.line(pts, fill=fade(col, (0.55 if hot else 0.22) * a), width=2)
+        # the data: one packet per syllable, travelling box -> gather point
+        for wv in waves:
+            u = float(wv.get("band", -1.0))
+            if u < 0.0:
                 continue
-            bstr = float(wv.get("band_s", 0.0))
-            if bstr <= 0.03:
+            stg = float(wv.get("band_s", 0.0))
+            if stg <= 0.03:
                 continue
-            n_pts = len(pts)
-            c = int(bpos * (n_pts - 1))
-            lo, hi = max(0, c - 5), min(n_pts - 1, c + 5)
-            if hi - lo >= 2:
-                _ribbon(img, pts[lo:hi + 1], col, half=half * 1.8, core=0.30,
-                        alpha=0.55 * bstr * a, hot=(255, 252, 240), hot_frac=0.30)
+            px, py = _bez_at(pts, u)
+            qx, qy = _bez_at(pts, min(1.0, u + 0.06))
+            d.line([(px, py), (qx, qy)], fill=fade((255, 250, 236), 0.98 * stg * a), width=6)
+            d.ellipse([px - 4, py - 4, px + 4, py + 4],
+                      fill=fade((255, 255, 255), 0.90 * stg * a))
 
-        d.ellipse([head[0] - 4, head[1] - 4, head[0] + 4, head[1] + 4],
-                  fill=fade(col, min(1.0, va + 0.30)))
-        # V1..Vn 的标签：跟着**这条声部自己的起点**走，不跟着收拢点——
-        # 声部是散的，标签堆在收拢点就叠成一团了。
-        # 而且要落在**画内**：光带从 x0−40（画外）进来，标签得等它进了画面再标，
-        # 否则 V1/V6（最外两条）永远看不见自己是谁。
-        lx = x0 + 12
-        ly = y_start
-        for pxi, pyi in pts:
-            if pxi >= lx:
-                ly = pyi
-                break
-        d.text((lx, ly - 5), "V%d" % (i + 1), font=font(tk.MONO, 8),
-               fill=fade(col, a * (0.75 * (1.0 - g) + 0.25)))
+    # --- 六个方框 -------------------------------------------------------------
+    for i in range(6):
+        cy = cy0 + step * i
+        on = i < lit
+        hot = i < nv
+        col = AMBER if on else (86, 68, 30)
+        la = (0.90 if on else 0.30) * a
+        d.rectangle([bx0, cy - SINGER_H / 2, bx1, cy + SINGER_H / 2],
+                    fill=fade((8, 8, 6), 0.72 * a),
+                    outline=fade(col, la), width=2)
+        tk.text(d, (bx0 + 7, cy - SINGER_H / 2 + 5), "V%d" % (i + 1),
+                font(tk.MONO_B, 11), col, la)
+        # a small level bar: moves when this singer is actually singing
+        bar_x0 = bx0 + 7
+        bar_x1 = bx1 - 7
+        bar_y = cy + SINGER_H / 2 - 12
+        d.rectangle([bar_x0, bar_y, bar_x1, bar_y + 5], outline=fade(col, 0.35 * la))
+        if on:
+            fw = (bar_x1 - bar_x0 - 2) * (0.25 + 0.70 * lvl) * (1.0 + 0.35 * puls)
+            fw = min(bar_x1 - bar_x0 - 2, fw)
+            d.rectangle([bar_x0 + 1, bar_y + 1, bar_x0 + 1 + fw, bar_y + 4],
+                        fill=fade(col, 0.95 * la))
+        # the connector: the box "plugs into" its data channel
+        if on:
+            d.line([(bx1, cy), (bx1 + 6, cy)], fill=fade(col, 0.75 * la), width=2)
 
-    # 光柱（"一个人唱出去"）。**不门控**：以前写 `if g > 0.50`，于是每句的前 40% 时间
-    # （还没收拢）光柱根本不存在，右边就是全空——导演（23:02）看到的就是这个。
-    # 现在它从头就在，只是淡；收拢时变亮变粗。这样"右边"从句子第一帧起就有东西。
+    # --- 汇聚点之后的六股光缆（"一个人唱出去"）---------------------------------
     if a > 0.02:
         ga = max(0.0, (g - 0.50) / 0.50)
-        lvl = float(st.get("level", 0.5))
-        puls = float(st.get("pulse", 0.0))
         beam_hot = mix((255, 224, 170), (255, 255, 255), 0.4 + 0.6 * puls)
-        bx0, bx1 = ex, x0 + w * 0.92
-        beam_half = (2.6 + 3.6 * ga) * (0.85 + 0.45 * lvl)
-        # 可见度：散开时 0.30（淡着在那儿），收拢后到 1.0
-        bvis = 0.50 + 0.50 * tk.ease(max(0.0, min(1.0, (g - 0.10) / 0.60)))
-        # 光柱不是一根线，是**一束六股**：六个人收拢之后仍然看得出是六个人。
-        # 导演（23:02）：「整个画面右边还是空的」——一根静止的细线横穿 600 px 撑不住画面，
-        # 而且"六个人变成一个"也不是事实：他们只是唱同一个音。六股并行、微微散开，
-        # 右边就有了六条在流的光，隐喻反而更准（不是变成一根线，是变成一束缆）。
+        beam_half = (2.0 + 3.6 * ga) * (0.85 + 0.45 * lvl)
+        bvis = 0.45 + 0.55 * tk.ease(max(0.0, min(1.0, (g - 0.10) / 0.60)))
         strand_half = max(1.2, beam_half * 0.30)
         for si in range(6):
             if si >= nv:
                 break
             off = CHORUS_CABLE[si] * h
-            pa = (bx0, mid + off * 0.15)
-            pb = (bx1, mid + off * 3.4)
-            _ribbon(img, [pa, pb], AMBER if si % 2 == 0 else BLUE_HI,
-                    half=strand_half, core=0.40, alpha=0.92 * bvis * a,
+            _ribbon(img, [(ex, mid + off * 0.15), (gx1, mid + off * 3.4)],
+                    AMBER if si % 2 == 0 else BLUE_HI,
+                    half=strand_half, core=0.40, alpha=0.90 * bvis * a,
                     hot=beam_hot, hot_frac=0.30)
-        # 主光柱在最底下垫一层：让六股合成一个整体，不至于散成六根独立的线
-        _ribbon(img, [(bx0, mid), (bx1, mid)], AMBER,
-                half=beam_half * 1.25, core=0.46, alpha=0.42 * bvis * a,
+        _ribbon(img, [(ex, mid), (gx1, mid)], AMBER,
+                half=beam_half * 1.20, core=0.46, alpha=0.40 * bvis * a,
                 hot=beam_hot, hot_frac=0.40)
-        # 汇聚点：每个字砸下来时，那里爆一下 —— 这是"六个人收到了一起"的那一下
-        # 行波走过汇聚点后**继续沿光柱流出去**：声音收成一条之后要唱出去，
-        # 否则右边就是一整片死的空白（导演 23:02：「整个画面右边还是空的」）。
-        for wv in (st.get("waves") or ()):
-            bpos = float(wv.get("beam", -1.0))
-            if bpos < 0.0:
-                continue
-            bstr = float(wv.get("beam_s", 0.0))
-            if bstr <= 0.03:
-                continue
-            cx = bx0 + (bx1 - bx0) * bpos
-            lo = max(bx0, cx - 46)
-            hi = min(bx1, cx + 46)
-            if hi - lo >= 4:
-                _ribbon(img, [(lo, mid), (hi, mid)], AMBER,
-                        half=beam_half * 1.7, core=0.30,
-                        alpha=0.60 * bstr * ga * a,
-                        hot=(255, 252, 240), hot_frac=0.30)
+        # the arrival: every syllable lands at the gather point
         if puls > 0.03:
-            r = 6 + 16 * puls * max(ga, 0.25)
+            r = 7 + 15 * puls
             d.ellipse([ex - r, mid - r, ex + r, mid + r],
-                      fill=fade((255, 250, 236), 0.55 * puls * max(ga, 0.25) * a))
-            d.ellipse([ex - r * 0.45, mid - r * 0.45, ex + r * 0.45, mid + r * 0.45],
-                      fill=fade((255, 255, 255), 0.80 * puls * max(ga, 0.25) * a))
-        # "WE" 只在真的收拢之后才写：散开时还没有"一个声音"可言
+                      fill=fade((255, 250, 236), 0.50 * puls * a))
+            d.ellipse([ex - r * 0.42, mid - r * 0.42, ex + r * 0.42, mid + r * 0.42],
+                      fill=fade((255, 255, 255), 0.85 * puls * a))
         if g > 0.50:
             f = font(tk.MONO_B, 11)
-            d.text((ex + 12, mid - 14), "WE", font=f, fill=fade(AMBER, 0.95 * ga * a))
+            d.text((ex + 12, mid - 14), "WE", font=f,
+                   fill=fade(AMBER, 0.95 * ga * a))
     if g > 0.68:
         ga = (g - 0.68) / 0.32
-        lab = "cos(v1..v%d) = %.3f" % (nv, float(st.get("cos", 0.0)))
+        lab = "cos(v1..v%d) = %.3f" % (nv, cos)
         f = font(tk.MONO_B, 12)
         tw = d.textlength(lab, font=f)
-        bx = ex + 74
-        d.rectangle([bx - 8, mid - 22, bx + tw + 8, mid - 2], fill=fade((2, 3, 8), 0.80 * ga * a))
-        d.text((bx, mid - 19), lab, font=f, fill=fade((255, 246, 224), 0.95 * ga * a))
+        bxx = ex + 74
+        d.rectangle([bxx - 8, mid - 22, bxx + tw + 8, mid - 2],
+                    fill=fade((2, 3, 8), 0.80 * ga * a))
+        d.text((bxx, mid - 19), lab, font=f, fill=fade((255, 246, 224), 0.95 * ga * a))
 
-    # 这一句是谁在唱：条数 = 实测的合唱人数，不是固定的六。
-    # **位置**：世界的 hud 标签（`tk.hud`）把 "24.15N 120.68E" 画在 (x0+8, y1-16)，
-    # 而 `layout4` 自己把 "TUI-1" 画在 (22, h-36) —— 都在世界的左下角。原来这里
-    # 也画在 (x0+6, y1-16)，三段字叠在一起，谁都看不清。改到**右上角**：
-    # 那一侧只有 "TUI-1"，而且合唱的线在左半边，不会撞。
+    # --- 右上角：这一句几个人在唱 + 歌词 --------------------------------------
     fv = font(tk.MONO, 9)
     lab = "VOICES %02d -> 01" % nv
     tw = d.textlength(lab, font=fv)
     lx = x1 - tw - 10
     d.rectangle([lx - 6, y0 + 20, lx + tw + 6, y0 + 34], fill=fade((2, 3, 8), 0.55 * a))
     d.text((lx, y0 + 22), lab, font=fv, fill=fade(BLUE_HI, 0.72 * a))
-    # 歌词：跟着 VOICES 那一行，但放在它**上面**一行（V1..Vn 标签在更上面）
     txt = st.get("text") or ""
     if txt:
         ft = font(tk.CJK, 9)

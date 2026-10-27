@@ -1433,29 +1433,40 @@ B2_WORDS = ("给我一把吉他我来唱", "给我一枝铅笔让我来画",
 
 
 def _b2_voice_state(t):
-    """B② 四句「给我…」的复声层数（None = 现在没有字）。
+    """B② 的复声：主唱唱词，和声**不是唱词，是「啦啦啦」的唱腔**。
 
-    层数**不是编的**：`voices.layers("B2", n)` 读的是实测数据（`data/backing_vocal.json`，
-    由 `src/probes/backing_vocal.py` 在原曲分轨的 `主唱人声` / `背景和声` 两轨上量出来）：
-    B② 四句的和声相对电平是 −7.4 / −6.6 / −6.3 / −5.0 dB——合唱在第二次宣言时一层层涌上来；
-    B① 全程 −8.6 ~ −9.8 dB，几乎只有一个人。详见 `src/voices.py` 的证据链。
+    导演（23:45）：「这段的和声 voices 不是唱的词，而是『啦啦啦』声音的唱腔附和」。
+    这是对上一版的**事实更正**：上一版把同一句词写三遍，等于说和声也在唱这句词。
+    实际上主唱一个人在唱词，和声是张口音的附和——所以画面上只能有**一行词**，
+    和声那几层要画成非语言的东西。
+
+    层数仍是量出来的：`voices.line_at()` 读 `data/backing_vocal_full.json`（覆盖 B② 全部
+    八句，−7.4 / −6.6 / −6.3 / −5.0 / −7.2 / −5.6 / −43.5 / −59.4 dB）。最后两句
+    −43.5 / −59.4 dB 表示和声已经没人了（1 层），所以那两句只剩主唱一行。
+
+    **这里不再自带一份词表**：早先 `B2_ACCT`/`B2_WORDS` 只写了四句「给我…」，
+    而 B② 实际有八句，于是 4:14 之后一直显示第 4 句的旧词、还把底栏歌词清空了
+    （导演 23:45：「4:15 的时候没有出现『那一天我爱上他』和后续台词」）。
+    现在词和时刻都从 `voices` 那一份实测数据来，不可能再对不上。
     """
     if not (B2_T0 <= t < B2_DRAIN):
         return None
-    idx = -1
-    for i, tt in enumerate(B2_ACCT):
-        if t >= tt:
-            idx = i
-    if idx < 0:
+    row = voices.line_row(t)
+    if row is None or row["group"] != "B2":
         return None
-    tt = B2_ACCT[idx]
-    nxt = B2_ACCT[idx + 1] if idx + 1 < len(B2_ACCT) else B2_DRAIN
-    # 落字后 0.16 s 内是"砸下来"，之后常驻；下一句开始前 0.12 s 淡出（和 B① 同一手法）
-    a_in = 0.42 + 0.58 * min(1.0, (t - tt) / 0.16)
-    a_out = min(1.0, max(0.0, (nxt - t) / 0.12))
-    return {"idx": idx, "word": B2_WORDS[idx], "layers": voices.layers("B2", idx + 1),
-            "shadow": voices.shadow_alpha("B2", idx + 1),
-            "alpha": a_in * a_out, "age": t - tt}
+    t0, t1 = float(row["t0"]), float(row["t1"])
+    # 落字后 0.16 s 内是"砸下来"，之后常驻；句末 0.12 s 淡出（和 B① 同一手法）
+    a_in = 0.42 + 0.58 * min(1.0, max(0.0, (t - t0) / 0.16))
+    a_out = min(1.0, max(0.0, (t1 - t) / 0.12))
+    # 和声的亮度直接用这一句的实测相对电平，不查旧的 4 行表
+    # （`shadow_alpha` 读 `backing_vocal.json`，那份只量了四句「给我…」，
+    #  对第 5–8 句会返回默认的 −12 dB，于是和声行画成几乎全黑）
+    rel = float(row["rel_db"])
+    u = max(0.0, min(1.0, (rel + 8.5) / 4.5))
+    return {"word": row["text"], "layers": int(row["voices"]),
+            "rel_db": rel, "shadow": 0.42 + 0.52 * u,
+            "alpha": a_in * a_out, "age": t - t0}
+
 
 
 

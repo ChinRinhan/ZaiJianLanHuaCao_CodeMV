@@ -132,6 +132,22 @@ def voices_at(t: float) -> int:
     return r[4] if r else 1
 
 
+def line_row(t: float):
+    """The raw measured row (dict) covering t, or None.
+
+    Callers that need the line's own `t0`/`t1` (to time a fade, say) should use this
+    rather than keeping a second copy of the onset table — the copy is how B② ended up
+    with four lines in one table and eight in another, and the picture then showed the
+    4th line's words all the way to the end of the section.
+    """
+    if not _FULL:
+        return None
+    for row in _FULL:
+        if row["t0"] <= t < row["t1"]:
+            return row
+    return None
+
+
 def next_line_after(t: float):
     """The sung line that starts after t, or None.
 
