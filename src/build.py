@@ -6,6 +6,7 @@
     python build.py 2 3        # render floors 2 and 3, then restack
     python build.py all        # render every floor not yet on disk
     python build.py join       # restack only — no rendering
+    python build.py 4k         # out/film_4k.mp4: 3x nearest-neighbour (3840x2160)
 
 THE ONE FILE: `out/film-v2.mp4`. Every `build.py N` leaves that file holding every floor
 finished so far, in order. Floors themselves are `out/parts/NN-<name>.mp4` and can be
@@ -95,6 +96,31 @@ def join() -> None:
     print(f"tower -> {MASTER}  ({len(used)} floor(s), {sz:.1f} MB)")
 
 
+def upscale(k: int = 3) -> None:
+    """3840×2160：**整数倍最近邻放大**，不是重渲。
+
+    和原案仓库（`world.execute(me);` 的 PV）同一手法——它的 `--4k` 也是
+    `scale=3840:2160:flags=neighbor`。理由：这部片子的画面是"一块 1994 年的屏幕"，
+    像素网格是设计的一部分；最近邻放大保住网格，读起来是"更大的屏"，不是"更糊的图"。
+    真要重渲到 2160p 得把 layout4 里所有绝对坐标和字号都乘一个比例——不值得，
+    而且 720p 的字体度量是逐帧调过的。
+
+    1080p（1.5×）**故意不做**：非整数倍最近邻会让像素大小不均匀（有的 1 px、有的 2 px），
+    平台需要 1080p 时从这份 4K 用 lanczos 缩下去即可。
+    """
+    if not MASTER.exists():
+        raise SystemExit("no master — run `build.py join` first")
+    w, h = 1280 * k, 720 * k
+    out = ROOT / "out" / "film_4k.mp4"
+    cmd = [str(FF), "-v", "error", "-y", "-i", str(MASTER),
+           "-vf", f"scale={w}:{h}:flags=neighbor,format=yuv420p",
+           "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+           "-c:a", "copy", "-movflags", "+faststart", str(out)]
+    print(f"upscale {MASTER.name} -> {out.name} ({w}x{h}, x{k} neighbour)")
+    subprocess.run(cmd, check=True)
+    print(f"wrote {out}  ({out.stat().st_size / 1048576:.1f} MB)")
+
+
 def status() -> None:
     have = floors_on_disk()
     print("floors:")
@@ -124,6 +150,9 @@ def main() -> None:
         return
     if cmd == "join":
         join()
+        return
+    if cmd == "4k":
+        upscale(3)
         return
     if cmd == "all":
         have = floors_on_disk()

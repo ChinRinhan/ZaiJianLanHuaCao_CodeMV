@@ -5,7 +5,9 @@
 张雨生《再见 兰花草!》（1994，专辑《卡拉OK·台北·我》末曲，6:35）的**代码逐帧生成** TUI 风格同人 MV。
 每一帧都是歌曲时间 `t` 的纯函数，一条命令从音频渲染到 mp4。**非官方同人，不商用。**
 
-- 仓库：`F:\dafeiyu\lanhuacao-mv` · git `main`
+成片 `out/film-v2.mp4`（1280×720 / 24 fps / 395.667 s）· 4K 版 `python src/build.py 4k` → `out/film_4k.mp4`（3840×2160，3× 最近邻）
+
+- 仓库：`ZaiJianLanHuaCao_CodeMV` · 本地 `F:\dafeiyu\lanhuacao-mv` · git `main`
 - **接手必读**：[`plan/21-交接文档.md`](plan/21-交接文档.md) → [`plan/INDEX.md`](plan/INDEX.md)
 
 ---
