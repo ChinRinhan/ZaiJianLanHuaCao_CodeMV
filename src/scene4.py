@@ -1556,6 +1556,128 @@ def _cut_shutter(t: float):
     return None
 
 
+# ---- 结尾：CRT 关屏，然后黑管上留下最后一行字 --------------------------------------
+# 导演（00:2x）：「结尾到 GAME SET 的过渡还没做。整体做一个 CRT 特效关闭的样子过渡到
+# GAME SET」，并选了「塌缩时带行扭 + 一道滚动亮带」。
+#
+# 时间轴（跨楼层 6/7 的边界，两边都要重盖）：
+#   386.46–386.94  画面塌成一条亮线：行扭 + 一道亮带从下往上扫出去
+#   386.94–387.06  亮线横向缩成一个点
+#   387.06–387.30  点带余辉抖一下、灭掉（像电容没放完电）
+#   387.14–387.62  黑管上浮出 GAME SET（只给透明度 + 8 px 上浮，画什么由 ending_frame 管）
+#   390.55–390.95  卡片退场，交给 3% 黑 + 光标 + [谢谢收听]
+#
+# 为什么关屏从 386.46 起而不是 386.5：387.0 是歌结束的那一帧（`scene.END_CUT`），
+# 画面应该和最后一个音一起死——所以塌缩横跨最后 0.54 s，卡片落在"声音已经没了"的黑管上。
+POFF_T0, POFF_LINE = 386.46, 386.94
+POFF_DOT, POFF_DEAD = 387.06, 387.30
+CARD_T0, CARD_T1 = 387.14, 387.62
+CARD_OUT0, CARD_OUT1 = 390.55, 390.95
+
+
+def _row_wobble(img: Image.Image, amp: float, phase: float) -> Image.Image:
+    """行扭：管子失去水平同步，每一行被推开不同的距离。"""
+    if amp < 0.5:
+        return img
+    W, H = img.size
+    src = img.copy()
+    out = img.copy()
+    for y in range(0, H, 2):
+        dx = amp * math.sin(y * 0.052 + phase) + 0.45 * amp * math.sin(y * 0.019 - phase * 1.7)
+        ix = int(round(dx))
+        if ix == 0:
+            continue
+        box = (0, y, W, min(H, y + 2))
+        out.paste((2, 3, 8), box)
+        out.paste(src.crop(box), (ix, y))
+    return out
+
+
+def _roll_band(img: Image.Image, u: float) -> Image.Image:
+    """滚动亮带：失去垂直同步时，一道亮带从下往上扫出去。"""
+    W, H = img.size
+    d = ImageDraw.Draw(img)
+    yb = H * (1.10 - 1.25 * u)
+    hh = 22 + 34 * (1.0 - u)
+    a = 0.46 * (1.0 - u)
+    if a > 0.01:
+        d.rectangle([0, yb - hh / 2, W, yb + hh / 2], fill=fade((255, 246, 224), 0.30 * a))
+        d.line([(0, yb), (W, yb)], fill=fade((255, 250, 236), a), width=4)
+    return img
+
+
+def _poff_line(img: Image.Image, keep: float) -> Image.Image:
+    """塌缩到底之后的那条亮线，以及它缩成点的过程（keep: 1 = 全宽，0 = 一点）。"""
+    W, H = img.size
+    cy = H // 2
+    d = ImageDraw.Draw(img)
+    w = max(2.0, W * max(0.006, keep))
+    x0, x1 = (W - w) / 2, (W + w) / 2
+    hot = 1.0 - min(1.0, keep)
+    d.rectangle([x0, cy - 1, x1, cy + 1], fill=fade((255, 250, 236), 0.60 + 0.40 * hot))
+    for k in (1, 2, 3, 5, 8):
+        aa = 0.16 * hot / (k * 0.9)
+        if aa > 0.004:
+            d.line([(x0, cy - k * 3), (x1, cy - k * 3)], fill=fade(AMBER, aa))
+            d.line([(x0, cy + k * 3), (x1, cy + k * 3)], fill=fade(AMBER, aa))
+    return img
+
+
+def _poff_dot(img: Image.Image, u: float) -> Image.Image:
+    """余辉点：亮度按指数退，叠一点抖动（电容没放完电）。"""
+    W, H = img.size
+    cy = H // 2
+    d = ImageDraw.Draw(img)
+    flick = 0.55 + 0.45 * math.cos(u * 44.0)
+    a = max(0.0, (1.0 - u) ** 1.5) * (0.55 + 0.45 * flick)
+    if a > 0.004:
+        for r, fa in ((16, 0.08), (8, 0.18), (3.4, 0.70), (1.7, 1.0)):
+            rr = r * (1.0 - 0.4 * u)
+            d.ellipse([W / 2 - rr, cy - rr, W / 2 + rr, cy + rr],
+                      fill=fade((255, 250, 236), fa * a))
+    return img
+
+
+def _card_float(img: Image.Image, a: float) -> Image.Image:
+    """卡片浮出：透明度 + 8 px 上浮，像黑管上慢慢显影的一行字。"""
+    W, H = img.size
+    layer = Image.new("RGB", (W, H), (0, 0, 0))
+    layer.paste(img, (0, int(round((1.0 - a) * 8))))
+    return Image.blend(Image.new("RGB", (W, H), (0, 0, 0)), layer, a)
+
+
+def _ending_crt(t: float, img: Image.Image) -> Image.Image:
+    """结尾的 CRT 关屏：塌缩 → 缩成点 → 余辉灭 → 黑管上浮出 GAME SET → 卡片退场。"""
+    if t < POFF_T0 or t >= CARD_OUT1:
+        return img
+    W, H = img.size
+    black = Image.new("RGB", (W, H), (0, 0, 0))
+    if t < POFF_LINE:
+        u = (t - POFF_T0) / (POFF_LINE - POFF_T0)
+        out = _squash(img, (1.0 - u) ** 1.55)
+        out = _row_wobble(out, 9.0 * u ** 1.3, t * 37.0)
+        return _roll_band(out, u)
+    # 从这一帧起画面只剩线/点；卡片在 CARD_T0 之后从黑里浮出来
+    a = 0.0 if t < CARD_T0 else min(1.0, (t - CARD_T0) / (CARD_T1 - CARD_T0))
+    base = _card_float(img, a) if a > 0.004 else black.copy()
+    if t < POFF_DOT:
+        u = (t - POFF_LINE) / (POFF_DOT - POFF_LINE)
+        return _poff_line(base, 1.0 - u)
+    if t < POFF_DEAD:
+        u = (t - POFF_DOT) / (POFF_DEAD - POFF_DOT)
+        return _poff_dot(base, u)
+    if t >= CARD_OUT0:
+        u = (t - CARD_OUT0) / (CARD_OUT1 - CARD_OUT0)
+        out = Image.blend(img, black, u)
+        # 光标**不跟着卡片退场**：卡片是遗言，会消失；"还在等"的那个方块要留到最后
+        # （它和 black_frame 里那个光标是同一格，所以这里补回来，交接处就不会闪一下）
+        ImageDraw.Draw(out).rectangle([64, 400, 78, 426], fill=(255, 176, 0))
+        return out
+    if a >= 0.999:
+        return img
+    return _card_float(img, a)
+
+
 # ---- the frame ----------------------------------------------------------------------
 # 04:05.79 的入口：画面先塌成一条线（0.24 s），再断电。塌缩必须发生在**断电之前**——
 # 之前把 245.79 放进 _EXTRA_CUTS，结果闸门落在楼层 3 的黑屏上，等于没塌，而"满屏→全黑"
@@ -1573,18 +1695,25 @@ def frame(t: float) -> Image.Image:
     if B2_SQUASH_T0 <= t < B2_T0:
         u = (t - B2_SQUASH_T0) / (B2_T0 - B2_SQUASH_T0)
         img = _squash(img, max(0.0, 1.0 - u) ** 0.85)
-    return img
+    # 出口：同一套 CRT 语法用一次"关屏"，落在 GAME SET 上
+    return _ending_crt(t, img)
 
 
 def _plain_frame(t: float) -> Image.Image:
-    # the ending chain is layout-independent and already finished: GAME SET, hard cut,
-    # 3% black, the cursor, [谢谢收听]. Reused as-is (plan/19 §2 row 4).
-    if t >= 386.5:
-        return preview.ending_frame(t, cursor_on=True)
-    if t >= scene.END_CUT:
+    # 结尾链：CRT 关屏（386.46 起，见 `_ending_crt`）→ 黑管上浮出 GAME SET（387.0 起）→
+    # 3% 黑 + 光标 + [谢谢收听]（390.95 起）。
+    # 顺序很重要：387.0 = `scene.END_CUT`（歌结束），之前那 0.54 s 画的是**还活着的画面**
+    # （塌缩的对象），之后才是卡片。卡片自己的淡入/淡出在 `_ending_crt` 里，这里只决定画哪张。
+    if t >= CARD_OUT1:
+        # 391.0 的 [谢谢收听] 原来是一帧硬出（0.62 alpha 的整行字凭空出现）。既然这条尾巴
+        # 现在真的会被播到（见上面那段注释），就给它 0.4 s 的淡入，和卡片的退场接上。
+        thanks_a = 0.0 if t < 391.0 else min(1.0, (t - 391.0) / 0.4)
+        if t >= 393.0:
+            thanks_a = max(0.0, 1.0 - (t - 393.0) / 1.6)
         return preview.black_frame(t, cursor_on=t < DUR - 0.35, thanks=t >= 391.0,
-                                   thanks_alpha=1.0 if t < 393.0
-                                   else max(0.0, 1.0 - (t - 393.0) / 1.6))
+                                   thanks_alpha=thanks_a)
+    if t >= scene.END_CUT:
+        return preview.ending_frame(t, cursor_on=True)
     # 0-5.2 s: the code stream — a disc goes into a machine and the machine reads it.
     # That part is finished and the director likes it; it runs unchanged.
     if t < 5.2:
