@@ -1165,7 +1165,8 @@ def _chorus_state(t):
         if g_in > 0.5:
             a = max(a, 0.85)
         return {"gather": g, "alpha": a, "cos": _chorus_cos(t), "voices": n,
-                "text": text, "rel_db": rel, "line_t0": t0, "line_t1": t1}
+                "text": text, "rel_db": rel, "line_t0": t0, "line_t1": t1,
+                "roster": _roster_state(t, n)}
 
     # --- between lines: hold the previous line's gathered chord --------------------
     prev = voices.prev_line_before(t)
@@ -1182,7 +1183,25 @@ def _chorus_state(t):
     return {"gather": 1.0, "alpha": 0.85 * hold, "cos": _chorus_cos(t),
             "voices": int(prev["voices"]), "text": prev["text"],
             "rel_db": float(prev["rel_db"]),
-            "line_t0": prev["t0"], "line_t1": prev["t1"]}
+            "line_t0": prev["t0"], "line_t1": prev["t1"],
+            "roster": _roster_state(t, int(prev["voices"]))}
+
+
+# 六人点名：A② 一开口就逐个点亮（导演拍板「点名应该在 A② 的头一句上点完」）。
+# 之后每句的人数变了，格子就跟着变 —— 这是"这句谁在唱"，不是"满员了"。
+ROSTER_OPEN = CHORUS_T0 + 0.15          # 第一格亮起
+ROSTER_STEP = 0.22                       # 每格间隔：1.32 s 点完六个
+
+
+def _roster_state(t: float, nv: int):
+    """The roster reveal: six cells light one by one at A②'s opening, then the
+    on/off state follows the measured number of singers for the current line."""
+    if t < CHORUS_T0:
+        return None
+    # the reveal: cells light up one by one from the opening of A②
+    lit_by_opening = min(6, max(0, int((t - ROSTER_OPEN) / ROSTER_STEP) + 1))
+    # after the reveal the roster just answers "how many are singing this line"
+    return {"open": lit_by_opening, "nv": nv}
 
 
 # 各段的谱相似度（主唱 vs 背景和声），量出来的：`src/probes/chorus_cosine.py`。

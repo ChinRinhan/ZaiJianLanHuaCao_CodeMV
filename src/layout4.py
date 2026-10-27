@@ -1279,6 +1279,9 @@ def frame(t, *, collapse=0.0, mode="W", entity_kw=None, content_kw=None, score=0
         _b2_voices(img, z.get("content") or z.get("paper"), voices)
     # A② 的合唱收敛：同一层（world），同样在 post() 之前。
     if chorus_fx:
+        # the roster goes under the light bands (top band, below the WORLD label), and
+        # the bands themselves are the middle third — they do not overlap.
+        _chorus_roster(img, z.get("content") or z.get("paper"), chorus_fx)
         _chorus_converge(img, z.get("content") or z.get("paper"), chorus_fx)
     img = tk.post(img, glow)
     if cue:
@@ -1573,6 +1576,69 @@ def _ribbon(img: Image.Image, pts, color, *, half: float = 6.0, core: float = 0.
     img.paste(band, (0, 0), mask)
     img.paste(band, (0, 0), mask.point(
         lambda v: int(v * alpha) if v < 255 else int(255 * min(1.0, alpha * 1.6))))
+
+
+def _chorus_roster(img: Image.Image, rect, st) -> None:
+    """The six-voice roster, in the world's top band, during the chorus.
+
+    The `CH 1–6` cells in the ops column are **invisible** in the film: 80×30 px in the
+    1280×720 render scales to 20×7 px on screen, and an audit measured that as "a small
+    yellow block nobody can read". They were there for the whole film just for the moment
+    six people sing together — and the moment they light up (B②'s last second) is the
+    moment the frame goes black, so nobody sees it.
+
+    So the roster moves into the world's top band, which is **empty** during the chorus
+    (the light bands sit in the middle third, 198–428 px; the top 150 px has nothing in
+    it). There it is big enough to read, and it is driven by the **measured** number of
+    singers in the line that is being sung — so it answers a real question: "who is
+    singing this line right now?".
+
+    导演拍板：「既然 A② 就是六人齐唱，点名应该在 A② 的头一句上点完——
+    B② 结尾留名单预告，A② 一开口，六个格子逐个点亮」。
+    """
+    if not st:
+        return
+    a = float(st.get("alpha", 0.0))
+    if a <= 0.02:
+        return
+    nv = max(1, min(6, int(st.get("voices", 1))))
+    # the reveal: cells light up one by one at A②'s opening. During the reveal the
+    # number is "how many have been called so far"; after it, it is "how many are
+    # singing this line" — the roster answers the question the light bands pose.
+    rs = st.get("roster") or {}
+    opening = max(1, min(6, int(rs.get("open", 6))))
+    shown = min(opening, nv) if opening < 6 else nv
+    # a cell lights brighter at the instant it is called (the 0.22 s beat)
+    just_called = opening < 6 and shown == opening
+    x0, y0, x1, y1 = rect
+    w = x1 - x0
+    d = ImageDraw.Draw(img)
+
+    # the roster lives in the world's top band, left-aligned under the WORLD label
+    # (which sits at y0+6). One cell per voice, wide enough to read: 26 px each.
+    cell_w, gap = 26, 6
+    ry = y0 + 30
+    rx0 = x0 + 10
+    label = "SINGERS %02d/06" % shown
+    f_lab = font(tk.MONO_B, 10)
+    tw = d.textlength(label, font=f_lab)
+    tk.text(d, (rx0 + 6 * (cell_w + gap) + 12, ry + 3), label, f_lab,
+            AMBER, 0.85 * a)
+
+    for i in range(6):
+        cx = rx0 + i * (cell_w + gap)
+        on = i < shown
+        # the cell that just lit is the one being called — it flashes a little brighter
+        hot = on and i == shown - 1 and just_called
+        col = AMBER if on else (96, 74, 30)
+        la = (0.92 if on else 0.34) + (0.30 if hot else 0.0)
+        d.rectangle([cx, ry, cx + cell_w, ry + 22], outline=fade(col, min(1.0, la * a)),
+                    fill=fade(col, (0.42 if on else 0.10) * la * a))
+        tk.text(d, (cx + 7, ry + 4), str(i + 1), font(tk.MONO_B, 12), col,
+                min(1.0, (0.95 if on else 0.42) * a))
+
+    # a thin rule under the roster separates it from the light bands below
+    d.line([(rx0, ry + 28), (x1 - 20, ry + 28)], fill=fade(AMBER, 0.22 * a))
 
 
 def _chorus_converge(img: Image.Image, rect, st) -> None:
